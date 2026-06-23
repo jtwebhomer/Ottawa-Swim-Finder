@@ -2,6 +2,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/utils/geo_utils.dart';
 import '../../core/utils/ottawa_time.dart';
 import '../../domain/entities/facility.dart';
+import '../../domain/entities/facility_type.dart';
 import '../../domain/entities/schedule_entry.dart';
 import '../../domain/repositories/repositories.dart';
 
@@ -137,10 +138,16 @@ class FacilityPinStatusUseCase {
 
     final result = <String, PinStatus>{};
     for (final facility in facilities) {
-      final schedules = await _scheduleRepo.getSchedulesForFacility(facility.id, date: date);
-      final swims = schedules
-          .where((s) => SwimCategories.all.contains(s.category))
-          .toList();
+      if (!facility.usesSwimScheduleUi) {
+        result[facility.id] = _pinStatusForDataModel(facility);
+        continue;
+      }
+
+      final schedules = await _scheduleRepo.getSchedulesForFacility(
+        facility.id,
+        date: date,
+      );
+      final swims = schedules;
 
       if (swims.isEmpty) {
         result[facility.id] = PinStatus.inactive;
@@ -162,6 +169,16 @@ class FacilityPinStatusUseCase {
     }
     return result;
   }
+
+  PinStatus _pinStatusForDataModel(Facility facility) {
+    return switch (facility.dataModel) {
+      FacilityDataModel.mixedSeasonal || FacilityDataModel.seasonalHours =>
+        PinStatus.seasonal,
+      FacilityDataModel.hoursOnly || FacilityDataModel.statusOnly =>
+        PinStatus.openHours,
+      FacilityDataModel.swimSchedule => PinStatus.inactive,
+    };
+  }
 }
 
-enum PinStatus { active, upcoming, inactive }
+enum PinStatus { active, upcoming, inactive, seasonal, openHours }

@@ -84,6 +84,11 @@ class SyncStatusIndicator extends StatelessWidget {
                     '${freshness.totalSwimFacilities} pools have schedules',
                   ),
                 ),
+              ListTile(
+                leading: const Icon(Icons.web),
+                title: Text(_syncBadgeLabel(state)),
+                subtitle: Text(_syncEngineSubtitle(state)),
+              ),
               if (state.syncProgress != null)
                 ListTile(
                   leading: const Icon(Icons.sync),
@@ -106,6 +111,42 @@ class SyncStatusIndicator extends StatelessWidget {
       },
     );
   }
+}
+
+String _syncBadgeLabel(AppState state) {
+  if (state.isSyncing || state.backgroundSyncActive) {
+    return 'Syncing…';
+  }
+  final engine = state.lastSyncEngine;
+  if (engine == 'PLAYWRIGHT' || engine == 'WEBVIEW') {
+    return 'Browser Sync';
+  }
+  if (state.lastSyncStatus == SyncStatus.partialSuccess) {
+    return 'Partial Sync';
+  }
+  if (state.trustSummary != null &&
+      (state.trustSummary!.cached > 0 || state.trustSummary!.fixture > 0) &&
+      state.trustSummary!.verified == 0) {
+    return 'Cached';
+  }
+  return 'Schedules';
+}
+
+String _syncEngineSubtitle(AppState state) {
+  final engine = state.lastSyncEngine;
+  if (engine == 'PLAYWRIGHT') {
+    return 'Last synced via Playwright browser engine';
+  }
+  if (engine == 'WEBVIEW') {
+    return 'Last synced via mobile WebView engine';
+  }
+  if (engine == 'HTTP') {
+    return 'Last synced via HTTP legacy mode';
+  }
+  if (state.lastSuccessfulSyncAt != null) {
+    return 'Last updated ${DateFormat.yMMMd().format(state.lastSuccessfulSyncAt!)}';
+  }
+  return 'Bundled schedules available offline';
 }
 
 extension on AppState {

@@ -17,6 +17,11 @@ class FacilityPageFetchResult {
     required this.finalUrl,
     required this.tier,
     this.contentType,
+    this.domSizeBytes,
+    this.loadTimeMs,
+    this.scheduleTableCount,
+    this.syncEngineLabel,
+    this.usedHttpFallback = false,
   });
 
   final String html;
@@ -24,6 +29,11 @@ class FacilityPageFetchResult {
   final String finalUrl;
   final String? contentType;
   final FacilityFetchTier tier;
+  final int? domSizeBytes;
+  final int? loadTimeMs;
+  final int? scheduleTableCount;
+  final String? syncEngineLabel;
+  final bool usedHttpFallback;
 }
 
 /// Record of each tier attempted during resilient fetch.

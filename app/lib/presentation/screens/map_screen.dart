@@ -4,15 +4,20 @@ import 'package:flutter_map_marker_cluster_2/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/services/facility_availability_presenter.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/services/map_tile_cache_service.dart';
 import '../../di/injection.dart';
 import '../../domain/entities/facility.dart';
+import '../../domain/entities/facility_type.dart';
 import '../../domain/entities/schedule_entry.dart';
 import '../../domain/usecases/swim_usecases.dart';
 import '../providers/app_state.dart';
 import '../widgets/home_swim_card.dart';
+import '../widgets/swim_filter_chips.dart';
 import '../widgets/sync_status_indicator.dart';
+import '../widgets/swim_session_presenter.dart';
+import 'facility_schedule_screen.dart';
 import 'facility_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -39,17 +44,17 @@ class _MapScreenState extends State<MapScreen> {
           Map<String, PinStatus> pinStatuses,
           double? userLat,
           double? userLng,
+          FacilityType? mapFacilityTypeFilter,
         })>(
       selector: (_, state) => (
-        facilities: state.facilities,
+        facilities: state.mapVisibleFacilities,
         pinStatuses: state.pinStatuses,
         userLat: state.userLat,
         userLng: state.userLng,
+        mapFacilityTypeFilter: state.mapFacilityTypeFilter,
       ),
       builder: (context, data, _) {
-        final mappableFacilities = data.facilities
-            .where((f) => f.latitude != null && f.longitude != null)
-            .toList();
+        final mappableFacilities = data.facilities;
 
         final clusterMarkers = mappableFacilities.map((facility) {
           final status = data.pinStatuses[facility.id] ?? PinStatus.inactive;
@@ -89,6 +94,13 @@ class _MapScreenState extends State<MapScreen> {
           ),
           body: Column(
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: AquaticFacilityTypeFilterChips(
+                  selected: data.mapFacilityTypeFilter,
+                  onChanged: context.read<AppState>().setMapFacilityTypeFilter,
+                ),
+              ),
               Expanded(
                 child: FlutterMap(
                   mapController: _mapController,
@@ -147,6 +159,7 @@ class _MapScreenState extends State<MapScreen> {
               ),
               if (_selectedFacility != null)
                 _FacilityBottomSheet(
+                  key: ValueKey(_selectedFacility!.id),
                   facility: _selectedFacility!,
                   status: data.pinStatuses[_selectedFacility!.id] ??
                       PinStatus.inactive,
@@ -175,15 +188,20 @@ class _FacilityPin extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final typeColor = AppTheme.pinColorForType(facility.facilityType);
     final color = switch (status) {
       PinStatus.active => AppTheme.pinActive,
       PinStatus.upcoming => AppTheme.pinUpcoming,
-      PinStatus.inactive => AppTheme.pinInactive,
+      PinStatus.inactive => typeColor.withValues(alpha: 0.85),
+      PinStatus.seasonal => typeColor,
+      PinStatus.openHours => typeColor,
     };
     final label = switch (status) {
       PinStatus.active => 'Now',
       PinStatus.upcoming => 'Soon',
-      PinStatus.inactive => 'Closed',
+      PinStatus.inactive => facility.dataModel.label,
+      PinStatus.seasonal => 'Seasonal',
+      PinStatus.openHours => 'Hours',
     };
 
     return Column(
@@ -241,10 +259,12 @@ class _MapLegend extends StatelessWidget {
           spacing: 12,
           runSpacing: 8,
           children: [
-            _LegendItem(color: AppTheme.pinActive, label: 'Now'),
-            _LegendItem(color: AppTheme.pinUpcoming, label: 'Soon'),
-            _LegendItem(color: AppTheme.pinInactive, label: 'Closed'),
-            Text('$facilityCount pools'),
+            _LegendItem(color: AppTheme.pinIndoorPool, label: 'Indoor'),
+            _LegendItem(color: AppTheme.pinWavePool, label: 'Wave'),
+            _LegendItem(color: AppTheme.pinOutdoorPool, label: 'Outdoor'),
+            _LegendItem(color: AppTheme.pinWadingPool, label: 'Wading'),
+            _LegendItem(color: AppTheme.pinSplashPad, label: 'Splash'),
+            Text('$facilityCount aquatic sites'),
           ],
         ),
       ),
@@ -273,6 +293,7 @@ class _LegendItem extends StatelessWidget {
 
 class _FacilityBottomSheet extends StatefulWidget {
   const _FacilityBottomSheet({
+    super.key,
     required this.facility,
     required this.status,
     required this.onDismiss,
@@ -289,6 +310,7 @@ class _FacilityBottomSheet extends StatefulWidget {
 class _FacilityBottomSheetState extends State<_FacilityBottomSheet> {
   List<ScheduleEntry> _swims = [];
   bool _loading = true;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -296,22 +318,48 @@ class _FacilityBottomSheetState extends State<_FacilityBottomSheet> {
     _load();
   }
 
-  Future<void> _load() async {
-    final summary =
-        await context.read<AppState>().facilitySwimSummary(widget.facility.id);
-    final cards = <ScheduleEntry>[];
-    if (summary.current != null) cards.add(summary.current!);
-    if (summary.next != null && summary.next != summary.current) {
-      cards.add(summary.next!);
-    }
-    if (summary.tomorrowFirst != null) cards.add(summary.tomorrowFirst!);
-
-    if (mounted) {
+  @override
+  void didUpdateWidget(covariant _FacilityBottomSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.facility.id != widget.facility.id) {
       setState(() {
-        _swims = cards;
-        _loading = false;
+        _loading = true;
+        _swims = [];
       });
+      _load();
     }
+  }
+
+  Future<void> _load() async {
+    if (!widget.facility.usesSwimScheduleUi) {
+      if (mounted) {
+        setState(() {
+          _swims = [];
+          _loading = false;
+        });
+      }
+      return;
+    }
+
+    final generation = ++_loadGeneration;
+    final facilityId = widget.facility.id;
+
+    final summary =
+        await context.read<AppState>().facilitySwimSummary(facilityId);
+
+    if (!mounted || generation != _loadGeneration || widget.facility.id != facilityId) {
+      return;
+    }
+
+    var swims = SwimSessionPresenter.sorted(summary.todaySwims);
+    if (swims.isEmpty && summary.tomorrowSwims.isNotEmpty) {
+      swims = [...summary.tomorrowSwims];
+    }
+
+    setState(() {
+      _swims = swims;
+      _loading = false;
+    });
   }
 
   @override
@@ -320,7 +368,9 @@ class _FacilityBottomSheetState extends State<_FacilityBottomSheet> {
     final statusLabel = switch (widget.status) {
       PinStatus.active => 'Swimming now',
       PinStatus.upcoming => 'Starting soon',
-      PinStatus.inactive => 'No swims right now',
+      PinStatus.inactive => widget.facility.dataModel.label,
+      PinStatus.seasonal => 'Seasonal hours',
+      PinStatus.openHours => 'Open hours only',
     };
 
     return Material(
@@ -363,6 +413,8 @@ class _FacilityBottomSheetState extends State<_FacilityBottomSheet> {
                               PinStatus.active => AppTheme.pinActive,
                               PinStatus.upcoming => AppTheme.pinUpcoming,
                               PinStatus.inactive => theme.colorScheme.outline,
+                              PinStatus.seasonal => theme.colorScheme.tertiary,
+                              PinStatus.openHours => theme.colorScheme.outline,
                             },
                             fontWeight: FontWeight.w600,
                           ),
@@ -376,31 +428,63 @@ class _FacilityBottomSheetState extends State<_FacilityBottomSheet> {
                   ),
                 ],
               ),
-              if (_loading)
+              if (_loading && widget.facility.usesSwimScheduleUi)
                 const Padding(
                   padding: EdgeInsets.all(16),
                   child: Center(child: Text('Loading swims…')),
                 )
+              else if (!widget.facility.usesSwimScheduleUi)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        FacilityAvailabilityPresenter.headline(widget.facility),
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        FacilityAvailabilityPresenter.detail(widget.facility),
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
+                )
               else if (_swims.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   child: Text(
-                    'No swims available right now. Try Tonight or Tomorrow.',
+                    FacilityAvailabilityPresenter.mapSheetMessage(widget.facility),
                   ),
                 )
               else
-                ..._swims.map((s) => HomeSwimCard(entry: s, compact: true)),
+                ..._swims.map(
+                  (s) => HomeSwimCard(
+                    entry: s,
+                    compact: true,
+                    facilityNameOverride: widget.facility.name,
+                    facilityIdOverride: widget.facility.id,
+                  ),
+                ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          FacilityScreen(facilityId: widget.facility.id),
+                      builder: (_) => FacilityScheduleScreen(
+                        facilityId: widget.facility.id,
+                      ),
                     ),
                   ),
-                  child: const Text('Full schedule'),
+                  child: Text(
+                    widget.facility.usesSwimScheduleUi
+                        ? 'Full schedule'
+                        : 'Facility details',
+                  ),
                 ),
               ),
                 ],

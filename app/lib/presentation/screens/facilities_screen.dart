@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/utils/ottawa_time.dart';
 import '../../data/services/facility_browse_helper.dart';
+import '../../data/services/facility_availability_presenter.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/facility_type.dart';
 import '../../domain/entities/schedule_entry.dart';
@@ -43,7 +44,7 @@ class _FacilitiesScreenState extends State<FacilitiesScreen> {
     final facility = _selected;
     if (facility == null) return;
 
-    if (!facility.hasSwimSchedule) {
+    if (!facility.usesSwimScheduleUi) {
       setState(() {
         _swims = [];
         _loading = false;
@@ -157,6 +158,16 @@ class _FacilitiesScreenState extends State<FacilitiesScreen> {
                         : FacilityType.wadingPool,
                   ),
                 ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: Text('Splash (${counts['splash']})'),
+                  selected: state.facilityTypeFilter == FacilityType.splashPad,
+                  onSelected: (_) => state.setFacilityTypeFilter(
+                    state.facilityTypeFilter == FacilityType.splashPad
+                        ? null
+                        : FacilityType.splashPad,
+                  ),
+                ),
               ],
             ),
           ),
@@ -247,22 +258,35 @@ class _FacilitiesScreenState extends State<FacilitiesScreen> {
             Padding(
               padding: const EdgeInsets.all(12),
               child: Text(
-                _selected!.hasSwimSchedule
+                _selected!.usesSwimScheduleUi
                     ? 'Swim schedule — ${_selected!.name}'
-                    : '${_selected!.name} — ${_selected!.scheduleMode.label}',
+                    : '${_selected!.name} — ${_selected!.nonSwimScheduleLabel}',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),
-            if (!_selected!.hasSwimSchedule)
+            if (!_selected!.usesSwimScheduleUi)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  _selected!.isSeasonal
-                      ? 'Seasonal outdoor facility. Check ottawa.ca for opening dates and hours.'
-                      : 'This facility uses open hours rather than swim session tables.',
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          FacilityAvailabilityPresenter.headline(_selected!),
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          FacilityAvailabilityPresenter.detail(_selected!),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            if (_selected!.hasSwimSchedule)
+            if (_selected!.usesSwimScheduleUi)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: SegmentedButton<FacilityBrowseTab>(
@@ -290,10 +314,16 @@ class _FacilitiesScreenState extends State<FacilitiesScreen> {
             if (_loading) const LinearProgressIndicator(),
             Expanded(
               flex: 3,
-              child: !_selected!.hasSwimSchedule
+              child: !_selected!.usesSwimScheduleUi
                   ? const SizedBox.shrink()
                   : _swims.isEmpty
-                      ? const Center(child: Text('No swims for this period.'))
+                      ? Center(
+                          child: Text(
+                            FacilityAvailabilityPresenter.mapSheetMessage(
+                              _selected!,
+                            ),
+                          ),
+                        )
                       : ListView.builder(
                           padding: const EdgeInsets.all(12),
                           itemCount: _swims.length,
@@ -324,7 +354,9 @@ class _FacilitiesScreenState extends State<FacilitiesScreen> {
       FacilityBrowseStatus.open => Colors.green,
       FacilityBrowseStatus.seasonal => Colors.orange,
       FacilityBrowseStatus.stale => Colors.amber,
-      FacilityBrowseStatus.noSchedule => Colors.grey,
+      FacilityBrowseStatus.parseIssue => Colors.orange,
+      FacilityBrowseStatus.hoursOnly => Colors.teal,
+      FacilityBrowseStatus.statusOnly => Colors.cyan,
       FacilityBrowseStatus.closed => Colors.red,
     };
     return Chip(

@@ -6,9 +6,9 @@ Find City of Ottawa public pool swim times in one place — instant on launch, s
 
 ## Download (Android)
 
-Get the latest APK from **[Releases](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)** or download [`releases/Ottawa-Swim-Finder-v1.4.0-rc1.apk`](releases/Ottawa-Swim-Finder-v1.4.0-rc1.apk) directly from this repo.
+Get the latest APK from **[Releases](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)** or download [`releases/Ottawa-Swim-Finder-v1.5.0.apk`](releases/Ottawa-Swim-Finder-v1.5.0.apk) directly from this repo.
 
-1. Download `Ottawa-Swim-Finder-v1.4.0-rc1.apk`
+1. Download `Ottawa-Swim-Finder-v1.5.0.apk`
 2. Install on your Android phone or tablet (enable “Install unknown apps” if prompted)
 3. Open the app — bundled schedules load immediately; live refresh runs in the background when online
 
@@ -16,7 +16,7 @@ No Google Play listing yet — installs are via the GitHub release APK.
 
 ## Features
 
-- **30+ Ottawa pools** — indoor, outdoor, wave, and wading facilities
+- **57 Ottawa aquatic facilities** — indoor, outdoor, wave, wading, and splash pads
 - **Instant home screen** — bundled seed data on first launch, no blocking sync screen
 - **Smart sections** — Swimming Now, Starting Soon, Tonight, and Tomorrow
 - **5-tab navigation** — Home, Find Swim, Map, Saved, Settings
@@ -27,6 +27,14 @@ No Google Play listing yet — installs are via the GitHub release APK.
 - **Saved swims** — bookmarks with optional reminders
 - **Habit hints** — gentle “you usually swim around this time” suggestions (on-device only)
 - **Navigate** to any pool in your preferred maps app
+
+## What's new in v1.5.0
+
+- Central backend API sync (`quantumvibe.ca:3000`) with 57-facility registry
+- Correct data models for wading pools, splash pads, and seasonal outdoor pools
+- HTTP scraper + Chrome extension cache import for blocked Ottawa.ca pages
+- Sync dashboard with facility status and direct links to facility pages
+- Map and facility screens show hours/seasonal status instead of empty swim states
 
 ## What's new in v1.4.0-rc1
 
@@ -43,8 +51,10 @@ Release candidate with production QA and chaos testing:
 
 ```
 ottawa_swim_finder/
-├── app/          # Flutter Android app
-├── releases/     # Release APKs
+├── app/              # Flutter Android app
+├── backend/          # Node.js schedule API + sync dashboard
+├── chrome-extension/ # Ottawa.ca schedule cache downloader
+├── releases/         # Release APKs
 ├── scraper/      # Python schedule scraper (development / validation)
 ├── docs/         # Architecture and schema notes
 └── scripts/      # Build helpers
@@ -70,7 +80,9 @@ Release APK:
 
 ```bash
 cd app
-flutter build apk --release
+flutter build apk --release \
+  --dart-define=API_BASE_URL=http://quantumvibe.ca:3000 \
+  --dart-define=API_KEY=your-api-key
 ```
 
 Output: `app/build/app/outputs/flutter-apk/app-release.apk`

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ottawa Swim Finder Extension Settings</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 24px; }
+    label { display: block; margin-top: 16px; font-weight: 600; }
+    input { width: 100%; padding: 8px; margin-top: 6px; box-sizing: border-box; }
+    button { margin-top: 20px; padding: 8px 14px; }
+    .hint { color: #555; font-size: 13px; margin-top: 6px; }
+    .saved { color: #1b5e20; margin-top: 12px; }
+    .ok { color: #1b5e20; margin-top: 12px; }
+    .error { color: #b71c1c; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Swim Finder Cache Extension</h1>
+  <p>Configure where downloaded schedule HTML is sent.</p>
+
+  <label for="apiBase">API base URL</label>
+  <input id="apiBase" type="url" placeholder="http://127.0.0.1:3000" />
+  <div class="hint">Local: http://127.0.0.1:3000 · Remote: http://quantumvibe.ca:3000</div>
+
+  <label for="apiKey">API key</label>
+  <input id="apiKey" type="password" placeholder="x-api-key value" />
+  <div class="hint">Same key as backend LOCAL_CREDENTIALS.txt</div>
+
+  <button id="save">Save</button>
+  <button id="test" type="button">Test connection</button>
+  <div class="saved" id="saved" hidden>Saved.</div>
+  <div class="hint" id="testStatus"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

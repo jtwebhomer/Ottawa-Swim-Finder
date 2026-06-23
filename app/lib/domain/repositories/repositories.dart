@@ -4,6 +4,7 @@ import '../entities/facility_type.dart';
 import '../entities/facility.dart';
 import '../entities/saved_swim.dart';
 import '../entities/schedule_entry.dart';
+import '../entities/schedule_trust_status.dart';
 import '../entities/scrape_log.dart';
 import '../entities/sync_log.dart';
 import '../entities/sync_status.dart';
@@ -22,6 +23,10 @@ abstract class FacilityRepository {
     int? lastSuccessfulSyncAt,
     String? contentHash,
     int? lastUpdated,
+    ScheduleTrustStatus? scheduleTrustStatus,
+    ScheduleSource? scheduleSource,
+    int? scheduleVerifiedAt,
+    int? fixtureGeneratedAt,
   });
   Future<void> toggleFavorite(String facilityId, bool isFavorite);
   Future<List<Facility>> getFavorites();
@@ -30,6 +35,7 @@ abstract class FacilityRepository {
 abstract class ScheduleRepository {
   Future<List<ScheduleEntry>> searchSchedules({
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     String? date,
     String? startAfter,
@@ -44,6 +50,12 @@ abstract class ScheduleRepository {
     String facilityId, {
     String? date,
   });
+  Future<List<ScheduleEntry>> getSchedulesForFacilityBetween({
+    required String facilityId,
+    required String startDate,
+    required String endDate,
+  });
+  Future<List<CategoryAuditRow>> getCategoryAuditReport();
 
   Future<List<ScheduleEntry>> getActiveNow();
   Future<List<ScheduleEntry>> getTimelineForDate(String date, {String? facilityId});
@@ -64,6 +76,7 @@ abstract class ScheduleRepository {
     double? userLng,
     int limit = 50,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? maxDistanceKm,
   });
@@ -75,6 +88,7 @@ abstract class ScheduleRepository {
     String? toDate,
     int limit = 200,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? userLat,
     double? userLng,
@@ -94,12 +108,16 @@ abstract class ScheduleRepository {
 
   Future<List<String>> getUnknownRawCategories();
 
+  /// Distinct raw + normalized categories with facility and session counts.
+  Future<List<CategoryInventoryRow>> getCategoryInventory();
+
   /// Next swims at or after [date]/[time], including future days.
   Future<List<ScheduleEntry>> findNextSwimsAfter({
     required String date,
     required String time,
     int limit = 50,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? userLat,
     double? userLng,
@@ -194,4 +212,36 @@ abstract class SavedSwimRepository {
   Future<void> remove(int id);
   Future<bool> isSaved(ScheduleEntry entry);
   Future<SavedSwim?> getById(int id);
+}
+
+/// Raw vs normalized swim category occurrence for diagnostics.
+class CategoryAuditRow {
+  const CategoryAuditRow({
+    required this.rawCategory,
+    required this.normalizedCategory,
+    required this.facilityId,
+    required this.facilityName,
+    required this.occurrences,
+  });
+
+  final String rawCategory;
+  final String normalizedCategory;
+  final String facilityId;
+  final String facilityName;
+  final int occurrences;
+}
+
+/// System-wide category inventory aggregated across all facilities.
+class CategoryInventoryRow {
+  const CategoryInventoryRow({
+    required this.rawCategory,
+    required this.normalizedCategory,
+    required this.facilityCount,
+    required this.sessionCount,
+  });
+
+  final String rawCategory;
+  final String normalizedCategory;
+  final int facilityCount;
+  final int sessionCount;
 }

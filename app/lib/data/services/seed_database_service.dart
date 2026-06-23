@@ -2,15 +2,16 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
-import '../../core/constants/app_constants.dart';
 import '../../core/logging/app_logger.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/schedule_entry.dart';
+import '../../domain/entities/schedule_trust_status.dart';
 import '../../domain/entities/sync_status.dart';
 import '../../domain/repositories/repositories.dart';
 import 'facility_discovery_service.dart';
+import 'fixture_seed_builder.dart';
 
-/// Loads bundled facility + schedule seed data on first launch.
+/// Loads bundled facility + fixture schedule seed data on first launch.
 class SeedDatabaseService {
   SeedDatabaseService({
     required FacilityRepository facilityRepo,
@@ -41,12 +42,18 @@ class SeedDatabaseService {
         seedLoaded != null &&
         existingFacilities.isNotEmpty &&
         scheduleCount > 0) {
-      return SeedLoadResult(
-        loaded: false,
-        facilityCount: existingFacilities.length,
-        scheduleCount: scheduleCount,
-        bundledAt: await _readBundledAt(),
-      );
+      final seedPayload = await _loadSeedPayload();
+      final storedVersion =
+          int.tryParse(await _settingsRepo.getString(seedVersionKey) ?? '') ?? 0;
+      final bundledVersion = seedPayload?.version ?? 0;
+      if (bundledVersion <= storedVersion) {
+        return SeedLoadResult(
+          loaded: false,
+          facilityCount: existingFacilities.length,
+          scheduleCount: scheduleCount,
+          bundledAt: await _readBundledAt(),
+        );
+      }
     }
 
     final canonical = await _discovery.loadCanonicalFacilities();
@@ -54,22 +61,50 @@ class SeedDatabaseService {
     final bundledAt = seedPayload?.bundledAtMs;
     final now = DateTime.now().millisecondsSinceEpoch;
 
+    if (seedPayload != null &&
+        seedPayload.version < 3 &&
+        FixtureSeedBuilder.containsPlaceholderNotes(seedPayload.rawJson)) {
+      appLogger.w(
+        '[seed] Refusing legacy placeholder seed v${seedPayload.version}',
+      );
+    }
+
     var facilitiesLoaded = 0;
     for (final facility in canonical) {
-      final hasSeedSchedules = seedPayload?.scheduleCountFor(facility.id) ?? 0;
+      final meta = seedPayload?.facilityMeta[facility.id];
+      final hasFixture = meta != null && meta.sessionCount > 0;
+
       final seededFacility = facility.copyWith(
-        lastSuccessfulSyncAt: hasSeedSchedules > 0 ? bundledAt ?? now : null,
-        syncStatus: hasSeedSchedules > 0
+        lastUpdated: bundledAt ?? now,
+        lastSuccessfulSyncAt: null,
+        syncStatus: hasFixture
             ? FacilitySyncStatus.stale
             : FacilitySyncStatus.failed,
-        lastUpdated: bundledAt ?? now,
+        scheduleTrustStatus: hasFixture
+            ? ScheduleTrustStatus.fixture
+            : ScheduleTrustStatus.unverified,
+        scheduleSource:
+            hasFixture ? ScheduleSource.fixture : ScheduleSource.none,
+        scheduleVerifiedAt: null,
+        fixtureGeneratedAt: hasFixture
+            ? meta.fixtureGeneratedAtMs
+            : null,
       );
       await _facilityRepo.upsertFacility(seededFacility);
       facilitiesLoaded++;
     }
 
     var schedulesLoaded = 0;
-    if (seedPayload != null) {
+    if (seedPayload != null && seedPayload.version >= 3) {
+      final swimFacilityIds = canonical
+          .where((f) => f.hasSwimSchedule)
+          .map((f) => f.id)
+          .toSet();
+      for (final facilityId in swimFacilityIds) {
+        if (!seedPayload.schedulesByFacility.containsKey(facilityId)) {
+          await _scheduleRepo.replaceSchedulesForFacility(facilityId, const []);
+        }
+      }
       for (final group in seedPayload.schedulesByFacility.entries) {
         await _scheduleRepo.replaceSchedulesForFacility(group.key, group.value);
         schedulesLoaded += group.value.length;
@@ -86,7 +121,8 @@ class SeedDatabaseService {
     );
 
     appLogger.i(
-      '[seed] Loaded $facilitiesLoaded facilities and $schedulesLoaded schedules',
+      '[seed] Loaded $facilitiesLoaded facilities and $schedulesLoaded '
+      'fixture sessions (v${seedPayload?.version ?? 0})',
     );
 
     return SeedLoadResult(
@@ -96,6 +132,7 @@ class SeedDatabaseService {
       bundledAt: bundledAt != null
           ? DateTime.fromMillisecondsSinceEpoch(bundledAt)
           : null,
+      fixtureFacilityCount: seedPayload?.facilityMeta.length ?? 0,
     );
   }
 
@@ -124,12 +161,14 @@ class SeedLoadResult {
     required this.facilityCount,
     required this.scheduleCount,
     this.bundledAt,
+    this.fixtureFacilityCount = 0,
   });
 
   final bool loaded;
   final int facilityCount;
   final int scheduleCount;
   final DateTime? bundledAt;
+  final int fixtureFacilityCount;
 }
 
 class _SeedPayload {
@@ -137,20 +176,31 @@ class _SeedPayload {
     required this.version,
     required this.bundledAtMs,
     required this.schedulesByFacility,
+    required this.facilityMeta,
+    required this.rawJson,
   });
 
   final int version;
   final int? bundledAtMs;
   final Map<String, List<ScheduleEntry>> schedulesByFacility;
-
-  int scheduleCountFor(String facilityId) =>
-      schedulesByFacility[facilityId]?.length ?? 0;
+  final Map<String, FixtureFacilityMeta> facilityMeta;
+  final Map<String, dynamic> rawJson;
 
   factory _SeedPayload.fromJson(Map<String, dynamic> json) {
     final bundledAtRaw = json['bundled_at_ms'] as int?;
     final schedules = <String, List<ScheduleEntry>>{};
     final rows = (json['schedules'] as List?)?.cast<Map<String, dynamic>>() ??
         const [];
+
+    final meta = <String, FixtureFacilityMeta>{};
+    final facilitiesJson = json['facilities'] as Map<String, dynamic>?;
+    if (facilitiesJson != null) {
+      for (final entry in facilitiesJson.entries) {
+        meta[entry.key] = FixtureFacilityMeta.fromJson(
+          Map<String, dynamic>.from(entry.value as Map),
+        );
+      }
+    }
 
     for (final row in rows) {
       final facilityId = row['facility_id'] as String;
@@ -178,6 +228,8 @@ class _SeedPayload {
       version: json['version'] as int? ?? 1,
       bundledAtMs: bundledAtRaw,
       schedulesByFacility: schedules,
+      facilityMeta: meta,
+      rawJson: json,
     );
   }
 }

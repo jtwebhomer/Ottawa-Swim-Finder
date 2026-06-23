@@ -1,3 +1,6 @@
+import '../../data/services/schedule_trust_resolver.dart';
+import 'schedule_trust_status.dart';
+
 /// Progressive sync coverage and freshness exposed to the UI.
 class SyncFreshnessSnapshot {
   const SyncFreshnessSnapshot({
@@ -9,6 +12,9 @@ class SyncFreshnessSnapshot {
     this.seedBundledAt,
     this.lastOverallSyncAt,
     this.lastLiveSyncAt,
+    this.trustSummary,
+    this.lastVerifiedAt,
+    this.syncBlocked = false,
   });
 
   final int totalSwimFacilities;
@@ -19,6 +25,9 @@ class SyncFreshnessSnapshot {
   final DateTime? seedBundledAt;
   final DateTime? lastOverallSyncAt;
   final DateTime? lastLiveSyncAt;
+  final ScheduleTrustSummary? trustSummary;
+  final DateTime? lastVerifiedAt;
+  final bool syncBlocked;
 
   bool get isFullySynced =>
       totalSwimFacilities > 0 && facilitiesFresh >= totalSwimFacilities;

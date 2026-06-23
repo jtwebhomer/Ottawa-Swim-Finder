@@ -5,6 +5,7 @@ import '../../data/services/habit_detection_service.dart';
 import '../../data/services/swim_query_service.dart';
 import '../../domain/entities/schedule_entry.dart';
 import '../providers/app_state.dart';
+import '../widgets/data_freshness_card.dart';
 import '../widgets/home_empty_state.dart';
 import '../widgets/home_swim_card.dart';
 import '../widgets/swim_session_presenter.dart';
@@ -50,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
+                DataFreshnessCard(state: state),
                 if (allEmpty)
                   const HomeAllEmptyState()
                 else ...[

@@ -11,18 +11,29 @@ class SwimTypeNormalizer {
     if (_containsAny(lower, ['women', "women's", 'womens', 'female only'])) {
       return SwimCategories.womensSwim;
     }
-    if (_containsAny(lower, ['preschool', 'pre-school'])) {
+    if (_containsAny(lower, ['preschool', 'pre-school', 'toddler'])) {
       return SwimCategories.preschoolSwim;
+    }
+    if (_containsAny(lower, ['teen swim', 'youth swim', 'teen only'])) {
+      return SwimCategories.teenSwim;
     }
     if (_containsAny(lower, [
       'lane swim',
       'adult lane',
       'fitness swim',
       'length swim',
+      'half lane',
     ])) {
       return SwimCategories.laneSwim;
     }
-    if (_containsAny(lower, ['aquafit', 'aqua fit', 'aquafitness', 'aqua-fit'])) {
+    if (_containsAny(lower, [
+      'aquafit',
+      'aqua fit',
+      'aquafitness',
+      'aqua-fit',
+      'deep water aquafit',
+      'deep-water aquafit',
+    ])) {
       return SwimCategories.aquafit;
     }
     if (_containsAny(lower, [
@@ -30,8 +41,16 @@ class SwimTypeNormalizer {
       'aquatic therapy',
       'therapeutic',
       'therapy swim',
+      'rehab swim',
+      'rehabilitation swim',
+      'sensory swim',
+      'chronic pain',
+      'pain management',
     ])) {
       return SwimCategories.therapeuticSwim;
+    }
+    if (_containsAny(lower, ['50+', '50 plus', 'fifty plus', 'senior swim'])) {
+      return SwimCategories.adultSwim;
     }
     if (lower.contains('family')) {
       return SwimCategories.familySwim;
@@ -69,8 +88,13 @@ class SwimTypeNormalizer {
         lower.contains('aquafit') ||
         lower.contains('aqua fit') ||
         lower.contains('aqua therapy') ||
+        lower.contains('aquatic') ||
+        lower.contains('chronic pain') ||
+        lower.contains('pain management') ||
         lower.contains('hot tub') ||
-        lower.contains('wave');
+        lower.contains('wave') ||
+        lower.contains('wading') ||
+        lower.contains('splash');
   }
 
   static bool isDisplayable(String category) =>
@@ -78,6 +102,14 @@ class SwimTypeNormalizer {
 
   static bool _containsAny(String haystack, List<String> needles) =>
       needles.any(haystack.contains);
+
+  /// Strips Ottawa.ca footnotes (e.g. "*Reservations required") from row labels.
+  static String cleanRawActivityLabel(String raw) {
+    var cleaned = raw.replaceAll(RegExp(r'[\u2018\u2019]'), "'");
+    cleaned = cleaned.split(RegExp(r'[\r\n]+')).first;
+    cleaned = cleaned.split('*').first;
+    return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
 }
 
 String normalizeSwimCategory(String raw) => SwimTypeNormalizer.normalize(raw);

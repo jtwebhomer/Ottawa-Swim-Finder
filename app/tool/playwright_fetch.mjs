@@ -1,9 +1,10 @@
 /**
- * Playwright Tier-2 fetch for dev/CI tooling.
+ * One-shot Playwright fetch (legacy / fallback when no session server).
  * Usage: node tool/playwright_fetch.mjs <url>
- * Prints one JSON line: { status, finalUrl, html }
+ * Prints one JSON line: { status, finalUrl, html, domSize, scheduleTableCount, loadTimeMs }
  */
 import { chromium } from 'playwright';
+import { extractFacilityPage } from './playwright_page_extract.mjs';
 
 const url = process.argv[2];
 if (!url) {
@@ -20,37 +21,16 @@ const context = await browser.newContext({
 const page = await context.newPage();
 
 try {
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-
-  for (let i = 0; i < 24; i++) {
-    const ready = await page.evaluate(() => {
-      const tables = document.querySelectorAll('table');
-      for (const table of tables) {
-        const cap = table.querySelector('caption');
-        const title =
-          (cap ? cap.textContent : '') ||
-          (table.previousElementSibling
-            ? table.previousElementSibling.textContent
-            : '');
-        if (
-          title.toLowerCase().includes('swim') ||
-          title.toLowerCase().includes('aquafit')
-        ) {
-          return true;
-        }
-      }
-      const body = document.body ? document.body.innerHTML : '';
-      return body.length > 8000 && !body.toLowerCase().includes('pardon our interruption');
-    });
-    if (ready) break;
-    await page.waitForTimeout(500);
-  }
-
-  const html = await page.content();
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  const result = await extractFacilityPage(page, { timeoutMs: 30000 });
   const payload = {
-    status: 200,
-    finalUrl: page.url(),
-    html,
+    status: result.status === 'ok' ? 200 : result.status === 'blocked' ? 403 : 0,
+    finalUrl: result.finalUrl,
+    html: result.html,
+    domSize: result.domSize,
+    scheduleTableCount: result.scheduleTableCount,
+    loadTimeMs: result.loadTimeMs,
+    expandedCount: result.expandedCount,
   };
   console.log(JSON.stringify(payload));
 } finally {

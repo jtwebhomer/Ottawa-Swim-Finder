@@ -8,6 +8,7 @@ import '../widgets/schedule_session_card.dart';
 import '../widgets/calendar_export_sheet.dart';
 import '../widgets/save_swim_sheet.dart';
 import '../widgets/swim_filter_chips.dart';
+import '../widgets/swim_advanced_filter_sheet.dart';
 import 'facility_screen.dart';
 
 enum FindSwimMode { activeAt, afterTime }
@@ -28,6 +29,7 @@ class _FindSwimScreenState extends State<FindSwimScreen> {
   final Set<String> _typeFilters = {};
   String? _facilityId;
   double? _maxDistanceKm;
+  SwimAdvancedFilters _advancedFilters = const SwimAdvancedFilters();
   List<ScheduleEntry> _results = [];
   bool _searched = false;
   bool _loading = false;
@@ -70,27 +72,49 @@ class _FindSwimScreenState extends State<FindSwimScreen> {
     final time =
         '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}';
     final (startDate, endDate) = _dateRange();
-    final categories =
-        _typeFilters.isEmpty ? null : _typeFilters.toList();
+    final categories = _typeFilters.isEmpty && _advancedFilters.swimTypes.isEmpty
+        ? null
+        : {..._typeFilters, ..._advancedFilters.swimTypes}.toList();
+    final rawCategories = _advancedFilters.rawCategories.isEmpty
+        ? null
+        : _advancedFilters.rawCategories.toList();
+    final maxDistance = _maxDistanceKm ?? _advancedFilters.distanceKm;
 
-    final results = _mode == FindSwimMode.activeAt
+    var results = _mode == FindSwimMode.activeAt
         ? await state.findSwimsActiveAt(
             time,
             date: startDate,
             endDate: startDate == endDate ? null : endDate,
             categories: categories,
+            rawCategories: rawCategories,
             facilityId: _facilityId,
-            maxDistanceKm: _maxDistanceKm,
+            maxDistanceKm: maxDistance,
           )
         : await state.findSwimsAfter(
             time,
             date: startDate,
             endDate: endDate,
             categories: categories,
+            rawCategories: rawCategories,
             facilityId: _facilityId,
-            maxDistanceKm: _maxDistanceKm,
+            maxDistanceKm: maxDistance,
             nextAcrossDays: startDate == endDate,
           );
+
+    if (_advancedFilters.facilityType != null) {
+      final allowed = state.facilities
+          .where((f) => f.facilityType == _advancedFilters.facilityType)
+          .map((f) => f.id)
+          .toSet();
+      results = results.where((r) => allowed.contains(r.facilityId)).toList();
+    }
+
+    if (_advancedFilters.timeOfDay != null) {
+      final (start, end) = _advancedFilters.timeOfDay!.timeRange;
+      results = results
+          .where((r) => r.startTime.compareTo(start) >= 0 && r.startTime.compareTo(end) <= 0)
+          .toList();
+    }
 
     setState(() {
       _results = results;
@@ -104,7 +128,25 @@ class _FindSwimScreenState extends State<FindSwimScreen> {
     final (startDate, endDate) = _dateRange();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Find Swim')),
+      appBar: AppBar(
+        title: const Text('Find Swim'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Advanced filters',
+            onPressed: () async {
+              final updated = await showSwimAdvancedFilterSheet(
+                context,
+                initial: _advancedFilters,
+                inventory: state.categoryInventory,
+              );
+              if (updated != null) {
+                setState(() => _advancedFilters = updated);
+              }
+            },
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -172,6 +214,7 @@ class _FindSwimScreenState extends State<FindSwimScreen> {
           const SizedBox(height: 12),
           SwimTypeFilterChips(
             selected: _typeFilters,
+            inventory: state.categoryInventory,
             onChanged: (next) => setState(() {
               _typeFilters
                 ..clear()

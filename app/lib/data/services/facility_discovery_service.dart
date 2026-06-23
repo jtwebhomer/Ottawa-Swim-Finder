@@ -54,6 +54,54 @@ class FacilityDiscoveryService {
     return _parseIndoorListingHtml(html);
   }
 
+  Future<List<DiscoveredFacilityRow>> discoverOutdoorPoolsFromSource({
+    bool escalateToBrowser = false,
+  }) async {
+    final html = await _fetchListingHtml(
+      AppConstants.outdoorPoolsUrl,
+      escalateToBrowser: escalateToBrowser,
+    );
+    if (html == null) return [];
+    return _parseOutdoorListingHtml(html);
+  }
+
+  List<DiscoveredFacilityRow> _parseOutdoorListingHtml(String html) {
+    final document = html_parser.parse(html);
+    final facilities = <DiscoveredFacilityRow>[];
+    final seenSlugs = <String>{};
+
+    for (final element in document.querySelectorAll('li, p')) {
+      final text = element.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (!text.contains(',')) continue;
+
+      final match = RegExp(r'^(.+?),\s*(.+)$').firstMatch(text);
+      if (match == null) continue;
+
+      final name = match.group(1)!.trim();
+      if (!name.toLowerCase().contains('pool') &&
+          !name.toLowerCase().contains('splash')) {
+        continue;
+      }
+
+      final slug = FacilitySlugRegistry.slugForName(name);
+      if (slug == null || slug.isEmpty || seenSlugs.contains(slug)) continue;
+      seenSlugs.add(slug);
+
+      facilities.add(
+        DiscoveredFacilityRow(
+          name: name,
+          address: match.group(2)!.trim(),
+          region: 'outdoor',
+          slug: slug,
+          slugResolution: 'outdoor-listing',
+        ),
+      );
+    }
+
+    appLogger.i('[discovery] Parsed ${facilities.length} outdoor facilities');
+    return facilities;
+  }
+
   List<DiscoveredFacilityRow> _parseIndoorListingHtml(String html) {
     final document = html_parser.parse(html);
     final facilities = <DiscoveredFacilityRow>[];
@@ -136,8 +184,12 @@ class FacilityDiscoveryService {
   }
 
   Future<List<Facility>> loadCanonicalFacilities() async {
-    final jsonStr =
-        await rootBundle.loadString('assets/facilities_canonical.json');
+    String jsonStr;
+    try {
+      jsonStr = await rootBundle.loadString('assets/facilities_registry.json');
+    } catch (_) {
+      jsonStr = await rootBundle.loadString('assets/facilities_canonical.json');
+    }
     final data = json.decode(jsonStr) as Map<String, dynamic>;
     final rows = (data['facilities'] as List).cast<Map<String, dynamic>>();
 
@@ -147,27 +199,40 @@ class FacilityDiscoveryService {
       final type = FacilityType.inferFromIdAndName(
         id: id,
         name: name,
-        explicit: row['facility_type'] as String?,
+        explicit: (row['facility_type'] ?? row['type']) as String?,
       );
+      final dataModel = FacilityDataModel.fromStorage(
+            row['data_model'] as String?,
+          ) ??
+          FacilityDataModel.forType(
+            type,
+            hasSwimSchedule: row['has_swim_schedule'] as bool?,
+          );
       final scheduleMode = FacilityScheduleMode.fromStorage(
             row['schedule_mode'] as String?,
           ) ??
-          FacilityScheduleMode.forType(type);
+          FacilityScheduleMode.forDataModel(dataModel);
 
       return Facility(
         id: id,
         name: name,
         address: row['address'] as String?,
-        latitude: (row['latitude'] as num?)?.toDouble(),
-        longitude: (row['longitude'] as num?)?.toDouble(),
+        latitude: ((row['latitude'] ?? row['lat']) as num?)?.toDouble(),
+        longitude: ((row['longitude'] ?? row['lng']) as num?)?.toDouble(),
         region: row['region'] as String?,
         url:
             '${AppConstants.ottawaBaseUrl}/en/recreation-and-parks/facilities/place-listing/$id',
         facilityType: type,
+        dataModel: dataModel,
+        displayStatus: FacilityDisplayStatus.defaultFor(dataModel),
         scheduleMode: scheduleMode,
-        metadataJson: row['notes'] != null
-            ? json.encode({'notes': row['notes']})
-            : null,
+        metadataJson: () {
+          final meta = <String, dynamic>{
+            if (row['notes'] != null) 'notes': row['notes'],
+            if (row['season'] != null) 'season': row['season'],
+          };
+          return meta.isEmpty ? null : json.encode(meta);
+        }(),
       );
     }).toList();
   }
@@ -182,7 +247,10 @@ class FacilityDiscoveryService {
           name: discovered.name,
         );
     final scheduleMode =
-        canonical?.scheduleMode ?? FacilityScheduleMode.forType(type);
+        canonical?.scheduleMode ??
+            FacilityScheduleMode.forDataModel(
+              FacilityDataModel.forType(type),
+            );
 
     return Facility(
       id: discovered.slug,

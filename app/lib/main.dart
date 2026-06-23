@@ -31,7 +31,7 @@ Future<void> _initWorkmanager() async {
   await Workmanager().registerPeriodicTask(
     AppConstants.syncTaskName,
     AppConstants.syncTaskName,
-    frequency: const Duration(days: 7),
+    frequency: const Duration(hours: 8),
     constraints: Constraints(networkType: NetworkType.connected),
   );
 }

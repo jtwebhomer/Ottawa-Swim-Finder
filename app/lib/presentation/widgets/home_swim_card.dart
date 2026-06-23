@@ -20,12 +20,17 @@ class HomeSwimCard extends StatefulWidget {
     this.highlight = false,
     this.compact = false,
     this.habitHint,
+    this.facilityNameOverride,
+    this.facilityIdOverride,
   });
 
   final ScheduleEntry entry;
   final bool highlight;
   final bool compact;
   final String? habitHint;
+  /// When set (e.g. map sheet), always show this facility name instead of entry.facilityName.
+  final String? facilityNameOverride;
+  final String? facilityIdOverride;
 
   @override
   State<HomeSwimCard> createState() => _HomeSwimCardState();
@@ -45,7 +50,10 @@ class _HomeSwimCardState extends State<HomeSwimCard> {
     final state = context.read<AppState>();
     final theme = Theme.of(context);
     final entry = widget.entry;
-    final facility = state.facilityFor(entry.facilityId);
+    final facilityId = widget.facilityIdOverride ?? entry.facilityId;
+    final facility = state.facilityFor(facilityId);
+    final displayName =
+        widget.facilityNameOverride ?? entry.facilityName ?? facility?.name ?? 'Pool';
     final status = SwimSessionPresenter.statusFor(entry);
 
     return Card(
@@ -58,7 +66,7 @@ class _HomeSwimCardState extends State<HomeSwimCard> {
       child: InkWell(
         onTap: () async {
           await getIt<FacilityInteractionService>().recordSwimDetailClick(
-            entry.facilityId,
+            facilityId,
             swimStartTime: entry.startTime,
             swimDate: entry.date,
           );
@@ -66,7 +74,7 @@ class _HomeSwimCardState extends State<HomeSwimCard> {
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => FacilityScreen(facilityId: entry.facilityId),
+              builder: (_) => FacilityScreen(facilityId: facilityId),
             ),
           );
         },
@@ -83,7 +91,7 @@ class _HomeSwimCardState extends State<HomeSwimCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          entry.facilityName ?? facility?.name ?? 'Pool',
+                          displayName,
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w600,
                           ),

@@ -124,7 +124,9 @@ class ScheduleParser {
         final cells = row.querySelectorAll('th, td');
         if (cells.length < 2) continue;
 
-        final rawCategory = cells.first.text.trim();
+        final rawCategory = SwimTypeNormalizer.cleanRawActivityLabel(
+          cells.first.text.trim(),
+        );
         if (rawCategory.isEmpty ||
             _dayNames.contains(rawCategory.toLowerCase()) ||
             !isSwimRow(rawCategory)) {

@@ -2,7 +2,7 @@ import '../../core/logging/app_logger.dart';
 import '../../domain/entities/facility_priority.dart';
 import '../../domain/entities/sync_location_context.dart';
 import '../../domain/entities/sync_progress.dart';
-import '../scraper/ottawa_scraper.dart';
+import '../../domain/entities/sync_result.dart';
 import 'location_service.dart';
 import 'seed_database_service.dart';
 import 'sync_service.dart';

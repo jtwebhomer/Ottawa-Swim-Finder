@@ -3,6 +3,7 @@ enum FacilitySyncFailureKind {
   ok('OK'),
   unchanged('UNCHANGED'),
   blockedBotChallenge('BLOCKED'),
+  blockedPlaywright('BLOCKED_PLAYWRIGHT'),
   parseEmpty('PARSE_EMPTY'),
   parseRejected('PARSE_REJECTED'),
   networkFailure('NETWORK_FAILURE'),
@@ -39,6 +40,11 @@ class FacilitySyncDiagnostic {
     this.detail,
     this.fetchTier,
     this.tierTrail,
+    this.domSizeBytes,
+    this.loadTimeMs,
+    this.syncEngine,
+    this.scheduleTableCount,
+    this.usedHttpFallback = false,
   });
 
   final String facilityId;
@@ -56,6 +62,11 @@ class FacilitySyncDiagnostic {
   final String? detail;
   final String? fetchTier;
   final String? tierTrail;
+  final int? domSizeBytes;
+  final int? loadTimeMs;
+  final String? syncEngine;
+  final int? scheduleTableCount;
+  final bool usedHttpFallback;
 
   String get statusLabel => kind.label;
 
@@ -65,7 +76,12 @@ class FacilitySyncDiagnostic {
         'Status: $statusLabel\n'
         'HTTP: $http\n'
         'Fetch tier: ${fetchTier ?? '—'}\n'
+        'Sync engine: ${syncEngine ?? '—'}\n'
         'Sessions parsed: $sessionsParsed\n'
+        'Schedule tables: ${scheduleTableCount ?? '—'}\n'
+        'DOM size: ${domSizeBytes ?? '—'}\n'
+        'Load time: ${loadTimeMs != null ? '${loadTimeMs}ms' : '—'}\n'
+        'HTTP fallback: ${usedHttpFallback ? 'yes' : 'no'}\n'
         'HTML fingerprint: ${htmlFingerprint ?? '—'}\n'
         'Blocked check: ${blockedCheckSummary ?? '—'}\n'
         'Cached sessions kept: $existingCachedSessions'
@@ -75,7 +91,10 @@ class FacilitySyncDiagnostic {
 
   String logMessage() =>
       '[$statusLabel] $facilityId http=$httpStatus tier=${fetchTier ?? 'n/a'} '
-      'parsed=$sessionsParsed '
+      'engine=${syncEngine ?? 'n/a'} '
+      'parsed=$sessionsParsed tables=${scheduleTableCount ?? 'n/a'} '
+      'dom=${domSizeBytes ?? 'n/a'} ${loadTimeMs ?? 0}ms '
+      'fallback=$usedHttpFallback '
       'fingerprint=${htmlFingerprint ?? 'n/a'} '
       'blocked=${blockedCheckSummary ?? 'n/a'} '
       'cached=$existingCachedSessions'

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/ottawa_time.dart';
 import '../../data/services/facility_interaction_service.dart';
+import '../../data/services/facility_availability_presenter.dart';
 import '../../di/injection.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/facility_type.dart';
@@ -16,6 +17,7 @@ import '../providers/app_state.dart';
 import '../widgets/navigation_launch_button.dart';
 import '../widgets/schedule_session_card.dart';
 import '../widgets/swim_session_presenter.dart';
+import 'facility_schedule_screen.dart';
 
 class FacilityScreen extends StatefulWidget {
   const FacilityScreen({super.key, required this.facilityId});
@@ -46,7 +48,7 @@ class _FacilityScreenState extends State<FacilityScreen> {
     final facility = await facilityRepo.getFacilityById(widget.facilityId);
     final todayDate = OttawaTime.todayDate();
     final schedules = SwimSessionPresenter.sorted(
-      await scheduleRepo.getSchedulesForFacility(widget.facilityId, date: todayDate),
+      await scheduleRepo.getTimelineForDate(todayDate, facilityId: widget.facilityId),
     );
 
     final time = OttawaTime.nowTime();
@@ -54,6 +56,7 @@ class _FacilityScreenState extends State<FacilityScreen> {
         .where((s) => OttawaTime.isActiveAt(start: s.startTime, end: s.endTime, time: time))
         .toList();
 
+    if (!mounted) return;
     setState(() {
       _facility = facility;
       _todaySchedules = schedules;
@@ -73,13 +76,10 @@ class _FacilityScreenState extends State<FacilityScreen> {
       return const Scaffold(body: Center(child: Text('Facility not found')));
     }
 
-    final state = context.watch<AppState>();
+    final state = context.read<AppState>();
     final now = OttawaTime.nowTime();
     final active = SwimSessionPresenter.activeNow(_todaySchedules, nowTime: now);
     final next = SwimSessionPresenter.nextUpcoming(_todaySchedules, nowTime: now);
-    final remaining = _todaySchedules
-        .where((s) => OttawaTime.isRemainingToday(end: s.endTime, time: now))
-        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -88,7 +88,7 @@ class _FacilityScreenState extends State<FacilityScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () async {
-              await context.read<AppState>().refreshAll();
+              await state.refreshAll();
               await _load();
             },
           ),
@@ -116,61 +116,78 @@ class _FacilityScreenState extends State<FacilityScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              '${facility.facilityType.label} · ${facility.scheduleMode.label}',
+              '${facility.aquaticSettingLabel} · ${facility.facilityType.label} · ${facility.scheduleMode.label}',
             ),
           ),
           const SizedBox(height: 16),
-          if (!facility.hasSwimSchedule)
+          FilledButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => FacilityScheduleScreen(facilityId: facility.id),
+              ),
+            ),
+            icon: const Icon(Icons.calendar_month),
+            label: Text(
+              facility.usesSwimScheduleUi
+                  ? 'View full schedule'
+                  : 'View hours & status',
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (!facility.usesSwimScheduleUi)
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(
-                  facility.isSeasonal
-                      ? 'Seasonal facility — check ottawa.ca for current opening dates and hours.'
-                      : 'Open-hours facility — swim session tables are not published for this location.',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      FacilityAvailabilityPresenter.headline(facility),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(FacilityAvailabilityPresenter.detail(facility)),
+                  ],
                 ),
               ),
             ),
-          if (facility.hasSwimSchedule) ...[
-          Row(
-            children: [
-              Flexible(
-                child: Chip(label: Text('Occupancy: $_occupancy')),
-              ),
-              const SizedBox(width: 8),
-              if (facility.latitude != null && facility.longitude != null)
-                NavigationLaunchButton(
-                  latitude: facility.latitude!,
-                  longitude: facility.longitude!,
-                  title: facility.name,
-                  facilityId: facility.id,
-                ),
+          if (facility.usesSwimScheduleUi) ...[
+            Row(
+              children: [
+                Flexible(child: Chip(label: Text('Occupancy: $_occupancy'))),
+                const SizedBox(width: 8),
+                if (facility.latitude != null && facility.longitude != null)
+                  NavigationLaunchButton(
+                    latitude: facility.latitude!,
+                    longitude: facility.longitude!,
+                    title: facility.name,
+                    facilityId: facility.id,
+                  ),
+              ],
+            ),
+            if (active != null) ...[
+              const SizedBox(height: 16),
+              Text('Now', style: Theme.of(context).textTheme.titleLarge),
+              ScheduleSessionCard(entry: active, highlight: true),
             ],
-          ),
-          if (active != null) ...[
+            if (next != null && next.id != active?.id) ...[
+              const SizedBox(height: 16),
+              Text('Up Next', style: Theme.of(context).textTheme.titleLarge),
+              ScheduleSessionCard(entry: next, highlight: true),
+            ],
             const SizedBox(height: 16),
-            Text('Now', style: Theme.of(context).textTheme.titleLarge),
-            ScheduleSessionCard(entry: active, highlight: true),
-          ],
-          if (next != null && next.id != active?.id) ...[
-            const SizedBox(height: 16),
-            Text('Up Next', style: Theme.of(context).textTheme.titleLarge),
-            ScheduleSessionCard(entry: next, highlight: true),
-          ],
-          const SizedBox(height: 16),
-          Text('Today', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          if (remaining.isEmpty && _todaySchedules.isEmpty)
-            const Text('No swims available right now')
-          else if (remaining.isEmpty)
-            const Text('No swims remaining today — try Tonight or Tomorrow')
-          else
-            ...remaining.map(
-              (s) => ScheduleSessionCard(
-                entry: s,
-                highlight: s.id == active?.id || s.id == next?.id,
+            Text('Today', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            if (_todaySchedules.isEmpty)
+              const Text('No swims scheduled for today — try Tomorrow in full schedule.')
+            else
+              ..._todaySchedules.map(
+                (s) => ScheduleSessionCard(
+                  entry: s,
+                  highlight: s.id == active?.id || s.id == next?.id,
+                ),
               ),
-            ),
           ],
         ],
       ),

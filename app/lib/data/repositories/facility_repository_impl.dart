@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/facility_type.dart';
+import '../../domain/entities/schedule_trust_status.dart';
 import '../../domain/entities/sync_status.dart';
 import '../../domain/repositories/repositories.dart';
 import '../database/app_database.dart';
@@ -76,7 +77,13 @@ class FacilityRepositoryImpl implements FacilityRepository {
         'sync_status': facility.syncStatus.label,
         'has_pool': facility.hasSwimSchedule ? 1 : 0,
         'facility_type': facility.facilityType.storageKey,
+        'data_model': facility.dataModel.storageKey,
+        'display_status': facility.displayStatus.storageKey,
         'schedule_mode': facility.scheduleMode.storageKey,
+        'schedule_trust_status': facility.scheduleTrustStatus.storageKey,
+        'schedule_source': facility.scheduleSource.storageKey,
+        'schedule_verified_at': facility.scheduleVerifiedAt,
+        'fixture_generated_at': facility.fixtureGeneratedAt,
         'metadata_json': facility.metadataJson,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -90,6 +97,10 @@ class FacilityRepositoryImpl implements FacilityRepository {
     int? lastSuccessfulSyncAt,
     String? contentHash,
     int? lastUpdated,
+    ScheduleTrustStatus? scheduleTrustStatus,
+    ScheduleSource? scheduleSource,
+    int? scheduleVerifiedAt,
+    int? fixtureGeneratedAt,
   }) async {
     final database = await _db.database;
     final updates = <String, Object?>{'sync_status': syncStatus.label};
@@ -98,6 +109,18 @@ class FacilityRepositoryImpl implements FacilityRepository {
     }
     if (contentHash != null) updates['content_hash'] = contentHash;
     if (lastUpdated != null) updates['last_updated'] = lastUpdated;
+    if (scheduleTrustStatus != null) {
+      updates['schedule_trust_status'] = scheduleTrustStatus.storageKey;
+    }
+    if (scheduleSource != null) {
+      updates['schedule_source'] = scheduleSource.storageKey;
+    }
+    if (scheduleVerifiedAt != null) {
+      updates['schedule_verified_at'] = scheduleVerifiedAt;
+    }
+    if (fixtureGeneratedAt != null) {
+      updates['fixture_generated_at'] = fixtureGeneratedAt;
+    }
     await database.update(
       'facilities',
       updates,
@@ -136,6 +159,22 @@ class FacilityRepositoryImpl implements FacilityRepository {
   }
 
   Facility _fromMap(Map<String, Object?> map) {
+    final facilityType = FacilityType.fromStorage(map['facility_type'] as String?) ??
+        FacilityType.indoorPool;
+    final dataModel = FacilityDataModel.fromStorage(map['data_model'] as String?) ??
+        FacilityDataModel.forType(
+          facilityType,
+          hasSwimSchedule: (map['has_pool'] as int? ?? 1) == 1
+              ? null
+              : false,
+        );
+    final displayStatus =
+        FacilityDisplayStatus.fromStorage(map['display_status'] as String?) ??
+            FacilityDisplayStatus.defaultFor(dataModel);
+    final scheduleMode =
+        FacilityScheduleMode.fromStorage(map['schedule_mode'] as String?) ??
+            FacilityScheduleMode.forDataModel(dataModel);
+
     return Facility(
       id: map['id'] as String,
       name: map['name'] as String,
@@ -153,11 +192,20 @@ class FacilityRepositoryImpl implements FacilityRepository {
               FacilitySyncStatus.ok,
       isFavorite: (map['is_favorite'] as int? ?? 0) == 1,
       metadataJson: map['metadata_json'] as String?,
-      facilityType: FacilityType.fromStorage(map['facility_type'] as String?) ??
-          FacilityType.indoorPool,
-      scheduleMode:
-          FacilityScheduleMode.fromStorage(map['schedule_mode'] as String?) ??
-              FacilityScheduleMode.swimSchedule,
+      facilityType: facilityType,
+      dataModel: dataModel,
+      displayStatus: displayStatus,
+      scheduleMode: scheduleMode,
+      scheduleTrustStatus: ScheduleTrustStatus.fromStorage(
+            map['schedule_trust_status'] as String?,
+          ) ??
+          ScheduleTrustStatus.unverified,
+      scheduleSource: ScheduleSource.fromStorage(
+            map['schedule_source'] as String?,
+          ) ??
+          ScheduleSource.none,
+      scheduleVerifiedAt: map['schedule_verified_at'] as int?,
+      fixtureGeneratedAt: map['fixture_generated_at'] as int?,
     );
   }
 }

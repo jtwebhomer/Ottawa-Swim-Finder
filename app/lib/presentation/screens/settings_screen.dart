@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/constants/app_constants.dart';
 import '../../data/services/map_tile_cache_service.dart';
 import '../../data/services/navigation_service.dart';
+import '../../domain/repositories/repositories.dart';
 import '../../di/injection.dart';
 import '../providers/app_state.dart';
 
@@ -20,11 +21,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _preferredNavApp;
   bool _cachingTiles = false;
   double _cacheProgress = 0;
+  String? _lastSyncEngine;
 
   @override
   void initState() {
     super.initState();
     _loadMapSettings();
+    _loadSyncSettings();
+  }
+
+  Future<void> _loadSyncSettings() async {
+    final settings = getIt<SettingsRepository>();
+    final lastEngine = await settings.getString(AppConstants.settingsLastSyncEngine);
+    if (mounted) {
+      setState(() {
+        _lastSyncEngine = lastEngine;
+      });
+    }
   }
 
   Future<void> _loadMapSettings() async {
@@ -134,20 +147,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _syncRow('Last Updated', _formatTs(state.lastSuccessfulSyncAt)),
                   _syncRow('Last Attempt', _formatTs(state.syncHealth?.lastSyncAt)),
                   _syncRow('Data Age', state.dataAgeLabel),
-                  _syncRow('Auto Sync', 'Every ${AppConstants.syncIntervalDays} days'),
+                  _syncRow('Auto Sync', 'Every ${AppConstants.syncIntervalHours} hours'),
                   _syncRow('App Version', state.appVersion),
                   _syncRow(
                     'Last Synced Version',
                     state.lastSyncedAppVersion ?? '—',
                   ),
                   _syncRow('Future Sessions', '${state.futureSessionCount}'),
+                  _syncRow(
+                    'Last sync engine',
+                    _lastSyncEngine ?? '—',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Schedule API', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  _syncRow('Data source', 'Backend API (verified)'),
+                  _syncRow('API URL', AppConstants.apiBaseUrl),
+                  _syncRow('API Key', AppConstants.apiKey.isEmpty ? 'Not set (use --dart-define)' : '••••••••'),
+                  _syncRow(
+                    'Last sync engine',
+                    _lastSyncEngine ?? '—',
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Schedules are scraped server-side. The app never contacts ottawa.ca directly.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
           ),
           ListTile(
             title: const Text('Manual Sync'),
-            subtitle: Text(state.syncMessage ?? 'Pull latest schedules from ottawa.ca'),
+            subtitle: Text(state.syncMessage ?? 'Pull latest schedules from API'),
             trailing: state.isSyncing
                 ? const CircularProgressIndicator()
                 : IconButton(

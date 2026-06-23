@@ -67,7 +67,75 @@ enum FacilityType {
   ];
 }
 
-/// How schedule data is presented for a facility.
+/// Required data model per facility — resolved before scraping.
+enum FacilityDataModel {
+  swimSchedule('SWIM_SCHEDULE', 'Swim schedule'),
+  mixedSeasonal('MIXED_SEASONAL', 'Seasonal schedule'),
+  seasonalHours('SEASONAL_HOURS', 'Seasonal hours'),
+  hoursOnly('HOURS_ONLY', 'Open hours only'),
+  statusOnly('STATUS_ONLY', 'Status only');
+
+  const FacilityDataModel(this.storageKey, this.label);
+  final String storageKey;
+  final String label;
+
+  static FacilityDataModel? fromStorage(String? value) {
+    if (value == null) return null;
+    for (final m in FacilityDataModel.values) {
+      if (m.storageKey == value || m.name == value) return m;
+    }
+    return null;
+  }
+
+  static FacilityDataModel forType(FacilityType type, {bool? hasSwimSchedule}) {
+    if (hasSwimSchedule == false && type == FacilityType.outdoorPool) {
+      return FacilityDataModel.mixedSeasonal;
+    }
+    return switch (type) {
+      FacilityType.indoorPool || FacilityType.wavePool => swimSchedule,
+      FacilityType.outdoorPool => mixedSeasonal,
+      FacilityType.wadingPool || FacilityType.splashPad => hoursOnly,
+    };
+  }
+
+  bool get expectsSwimTable => this == FacilityDataModel.swimSchedule;
+
+  bool get hasHoursOrSeasonalInfo => !expectsSwimTable;
+}
+
+/// API / UI display status — replaces vague "No schedules".
+enum FacilityDisplayStatus {
+  liveOk('LIVE_OK', 'Live schedules'),
+  seasonal('SEASONAL', 'Seasonal hours'),
+  hoursOnly('HOURS_ONLY', 'Open hours only'),
+  statusOnly('STATUS_ONLY', 'Status only'),
+  blocked('BLOCKED', 'Blocked'),
+  parseIssue('PARSE_ISSUE', 'Schedule parse issue'),
+  stale('STALE', 'Stale — last good data');
+
+  const FacilityDisplayStatus(this.storageKey, this.label);
+  final String storageKey;
+  final String label;
+
+  static FacilityDisplayStatus? fromStorage(String? value) {
+    if (value == null) return null;
+    for (final s in FacilityDisplayStatus.values) {
+      if (s.storageKey == value || s.name == value) return s;
+    }
+    return null;
+  }
+
+  static FacilityDisplayStatus defaultFor(FacilityDataModel model) {
+    return switch (model) {
+      FacilityDataModel.mixedSeasonal || FacilityDataModel.seasonalHours => seasonal,
+      FacilityDataModel.hoursOnly => hoursOnly,
+      FacilityDataModel.statusOnly => statusOnly,
+      FacilityDataModel.swimSchedule => liveOk,
+    };
+  }
+}
+
+/// How schedule data is presented for a facility (legacy API compat).
 enum FacilityScheduleMode {
   swimSchedule('HAS_SWIM_SCHEDULE', 'Has Swim Schedule'),
   openHoursOnly('OPEN_HOURS_ONLY', 'Open Hours Only'),
@@ -85,11 +153,11 @@ enum FacilityScheduleMode {
     return null;
   }
 
-  static FacilityScheduleMode forType(FacilityType type) {
-    return switch (type) {
-      FacilityType.indoorPool || FacilityType.wavePool => swimSchedule,
-      FacilityType.outdoorPool => seasonalOnly,
-      FacilityType.wadingPool || FacilityType.splashPad => openHoursOnly,
+  static FacilityScheduleMode forDataModel(FacilityDataModel model) {
+    return switch (model) {
+      FacilityDataModel.swimSchedule => swimSchedule,
+      FacilityDataModel.mixedSeasonal || FacilityDataModel.seasonalHours => seasonalOnly,
+      FacilityDataModel.hoursOnly || FacilityDataModel.statusOnly => openHoursOnly,
     };
   }
 }
@@ -97,9 +165,11 @@ enum FacilityScheduleMode {
 /// UI-facing operational status for browse screen.
 enum FacilityBrowseStatus {
   open('Open'),
-  seasonal('Seasonal'),
+  seasonal('Seasonal Schedule'),
+  hoursOnly('Open Hours Only'),
+  statusOnly('Seasonal Activity Area'),
   stale('Stale'),
-  noSchedule('No schedule'),
+  parseIssue('Schedule parse issue'),
   closed('Closed');
 
   const FacilityBrowseStatus(this.label);

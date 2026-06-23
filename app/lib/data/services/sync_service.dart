@@ -3,17 +3,18 @@ import '../../domain/entities/facility_priority.dart';
 import '../../domain/entities/sync_location_context.dart';
 import '../../domain/entities/sync_log.dart';
 import '../../domain/entities/sync_progress.dart';
+import '../../domain/entities/sync_result.dart';
 import '../../domain/entities/sync_status.dart';
 import '../../domain/repositories/repositories.dart';
-import '../scraper/ottawa_scraper.dart';
 import 'app_version_service.dart';
+import 'backend_sync_service.dart';
 import 'parser_health_service.dart';
 import 'sync_health_service.dart';
 import 'sync_safety_guard.dart';
 
 class SyncService {
   SyncService({
-    required OttawaScraper scraper,
+    required BackendSyncService backendSync,
     required SettingsRepository settingsRepo,
     required AppVersionService versionService,
     required ScheduleRepository scheduleRepo,
@@ -21,7 +22,7 @@ class SyncService {
     SyncHealthService? healthService,
     ParserHealthService? parserHealthService,
     SyncSafetyGuard? safetyGuard,
-  })  : _scraper = scraper,
+  })  : _backendSync = backendSync,
         _settingsRepo = settingsRepo,
         _versionService = versionService,
         _scheduleRepo = scheduleRepo,
@@ -30,7 +31,7 @@ class SyncService {
         _parserHealth = parserHealthService ?? ParserHealthService(settingsRepo),
         _safetyGuard = safetyGuard ?? SyncSafetyGuard();
 
-  final OttawaScraper _scraper;
+  final BackendSyncService _backendSync;
   final SettingsRepository _settingsRepo;
   final AppVersionService _versionService;
   final ScheduleRepository _scheduleRepo;
@@ -47,6 +48,7 @@ class SyncService {
 
   Future<bool> isWithinRoutineInterval() async {
     final lastSync = await _settingsRepo.getLastSyncAt();
+    if (lastSync == 0) return false;
     final hoursSince =
         (DateTime.now().millisecondsSinceEpoch - lastSync) / (1000 * 60 * 60);
     return hoursSince < AppConstants.syncIntervalHours;
@@ -62,34 +64,19 @@ class SyncService {
     await _settingsRepo.setLastSyncAttemptAt(attemptAt);
 
     final versionOutdated = await needsVersionSync();
-    final locationAnchor = anchor ?? SyncLocationContext.fallback();
-
-    var aggregate = await runSmartPhase(
-      phase: SmartSyncPhase.immediate,
-      anchor: locationAnchor,
-      force: force || versionOutdated,
-      onProgress: onProgress,
-      markRoutineComplete: false,
-    );
-    await onPhaseComplete?.call(SmartSyncPhase.immediate);
-
     if (!force && !versionOutdated && await isWithinRoutineInterval()) {
-      return aggregate;
+      return _cachedResult();
     }
 
-    for (final phase in [SmartSyncPhase.expansion, SmartSyncPhase.background]) {
-      final phaseResult = await runSmartPhase(
-        phase: phase,
-        anchor: locationAnchor,
-        force: force || versionOutdated,
-        onProgress: onProgress,
-        markRoutineComplete: phase == SmartSyncPhase.background,
-      );
-      aggregate = _mergeResults(aggregate, phaseResult);
-      await onPhaseComplete?.call(phase);
-    }
-
-    return aggregate;
+    final locationAnchor = anchor ?? SyncLocationContext.fallback();
+    final result = await _runSync(
+      force: force || versionOutdated,
+      anchor: locationAnchor,
+      onProgress: onProgress,
+      markRoutineComplete: true,
+    );
+    await onPhaseComplete?.call(SmartSyncPhase.background);
+    return result;
   }
 
   Future<SyncResult> runSmartPhase({
@@ -98,10 +85,7 @@ class SyncService {
     bool force = false,
     SyncProgressCallback? onProgress,
     bool markRoutineComplete = true,
-  }) async {
-    final attemptAt = DateTime.now().millisecondsSinceEpoch;
-    await _settingsRepo.setLastSyncAttemptAt(attemptAt);
-
+  }) {
     return _runSync(
       force: force,
       phase: phase,
@@ -118,30 +102,16 @@ class SyncService {
     Future<void> Function(SmartSyncPhase phase)? onPhaseComplete,
   }) async {
     final locationAnchor = anchor ?? SyncLocationContext.fallback();
-    var aggregate = await _runSync(
+    final result = await _runSync(
       force: true,
       isOnboarding: isOnboarding,
       phase: SmartSyncPhase.immediate,
       anchor: locationAnchor,
       onProgress: onProgress,
-      markRoutineComplete: false,
+      markRoutineComplete: true,
     );
     await onPhaseComplete?.call(SmartSyncPhase.immediate);
-
-    for (final phase in [SmartSyncPhase.expansion, SmartSyncPhase.background]) {
-      final phaseResult = await _runSync(
-        force: true,
-        isOnboarding: isOnboarding,
-        phase: phase,
-        anchor: locationAnchor,
-        onProgress: onProgress,
-        markRoutineComplete: phase == SmartSyncPhase.background,
-      );
-      aggregate = _mergeResults(aggregate, phaseResult);
-      await onPhaseComplete?.call(phase);
-    }
-
-    return aggregate;
+    return result;
   }
 
   Future<SyncResult> _runSync({
@@ -157,7 +127,7 @@ class SyncService {
     bool markRoutineComplete = true,
   }) async {
     final started = DateTime.now();
-    final result = await _scraper.syncAll(
+    final result = await _backendSync.syncAll(
       force: force,
       isOnboarding: isOnboarding,
       phase: phase,
@@ -201,7 +171,7 @@ class SyncService {
       globalRejected: result.antiCorruptionTriggered,
     );
 
-    if (healthy && markRoutineComplete) {
+    if (healthy && markRoutineComplete && !result.isOffline) {
       await _settingsRepo.setLastSyncAt(DateTime.now().millisecondsSinceEpoch);
 
       final version = await _versionService.fullVersionLabel();
@@ -219,48 +189,16 @@ class SyncService {
     return result;
   }
 
-  SyncResult _mergeResults(SyncResult a, SyncResult b) {
-    final worstStatus = _worstStatus(a.syncStatus, b.syncStatus);
+  Future<SyncResult> _cachedResult() async {
+    final count = await _scheduleRepo.countAllSchedules();
     return SyncResult(
-      syncStatus: worstStatus,
-      updated: a.updated + b.updated,
-      skipped: a.skipped + b.skipped,
-      errors: a.errors + b.errors,
-      rejected: a.rejected + b.rejected,
-      blocked: a.blocked + b.blocked,
-      parseEmpty: a.parseEmpty + b.parseEmpty,
-      pipelineCrashes: a.pipelineCrashes + b.pipelineCrashes,
-      staleCount: a.staleCount + b.staleCount,
-      http403Count: a.http403Count + b.http403Count,
-      scheduleCountBefore: a.scheduleCountBefore,
-      scheduleCountAfter: b.scheduleCountAfter,
-      totalFacilities: b.totalFacilities,
-      antiCorruptionTriggered:
-          a.antiCorruptionTriggered || b.antiCorruptionTriggered,
-      antiCorruptionReason: b.antiCorruptionReason ?? a.antiCorruptionReason,
-      rootCauseSummary: b.rootCauseSummary ?? a.rootCauseSummary,
-      facilitiesParsed: a.facilitiesParsed + b.facilitiesParsed,
-      successRate: (a.successRate + b.successRate) / 2,
-      projectedFutureSessions: b.projectedFutureSessions,
-      failedFacilityNames: [...a.failedFacilityNames, ...b.failedFacilityNames],
-      staleFacilityNames: [...a.staleFacilityNames, ...b.staleFacilityNames],
-      blockedFacilityNames: [...a.blockedFacilityNames, ...b.blockedFacilityNames],
-      parseEmptyFacilityNames: [
-        ...a.parseEmptyFacilityNames,
-        ...b.parseEmptyFacilityNames,
-      ],
-      facilityDiagnostics: [...a.facilityDiagnostics, ...b.facilityDiagnostics],
+      syncStatus: SyncStatus.success,
+      updated: 0,
+      skipped: 0,
+      errors: 0,
+      scheduleCountBefore: count,
+      scheduleCountAfter: count,
     );
-  }
-
-  SyncStatus _worstStatus(SyncStatus a, SyncStatus b) {
-    if (a == SyncStatus.failed || b == SyncStatus.failed) {
-      return SyncStatus.failed;
-    }
-    if (a == SyncStatus.partialSuccess || b == SyncStatus.partialSuccess) {
-      return SyncStatus.partialSuccess;
-    }
-    return SyncStatus.success;
   }
 
   Future<SyncHealthSnapshot> healthSnapshot() => _healthService.load();

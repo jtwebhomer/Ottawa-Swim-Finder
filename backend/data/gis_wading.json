@@ -1,0 +1,426 @@
+[
+  {
+    "id": "jules-morin-angelsea-park-wading-pool",
+    "name": "Jules Morin / Angelsea Park Wading Pool",
+    "address": "400 Clarence St. E.",
+    "lat": 45.43349748672056,
+    "lng": -75.68154277264324,
+    "season": "June 29 to August 22"
+  },
+  {
+    "id": "lions-park-wading-pool",
+    "name": "Lions Park Wading Pool",
+    "address": "294 Elmgrove Ave.",
+    "lat": 45.394277708040455,
+    "lng": -75.75232047872018,
+    "season": "June 22 to August 14"
+  },
+  {
+    "id": "chaudiere-park-wading-pool",
+    "name": "Chaudiere Park Wading Pool",
+    "address": "68 Elm St.",
+    "lat": 45.40984992552874,
+    "lng": -75.7135387005317,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "westboro-kiwanis-park-wading-pool",
+    "name": "Westboro Kiwanis Park Wading Pool",
+    "address": "411 Dovercourt Ave.",
+    "lat": 45.38390614819982,
+    "lng": -75.75301290553107,
+    "season": "June 29 - August 30, 2024"
+  },
+  {
+    "id": "mcnabb-recreation-complex-wading-pool",
+    "name": "McNabb Recreation Complex Wading Pool",
+    "address": "435 Bronson Ave.",
+    "lat": 45.408976180511765,
+    "lng": -75.70274498065895,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "barbara-carroll-park-wading-pool",
+    "name": "Barbara Carroll Park Wading Pool",
+    "address": "960 Eiffel Ave.",
+    "lat": 45.367907283139026,
+    "lng": -75.70673708569673,
+    "season": "June 29 to August 22"
+  },
+  {
+    "id": "greenboro-park-wading-pool",
+    "name": "Greenboro Park Wading Pool",
+    "address": "363 Lorry Greenberg Dr.",
+    "lat": 45.36329793266869,
+    "lng": -75.63644623326613,
+    "season": "June 22 to August 15"
+  },
+  {
+    "id": "owl-park-wading-pool",
+    "name": "Owl Park Wading Pool",
+    "address": "215 Owl Dr.",
+    "lat": 45.35438810056218,
+    "lng": -75.66479650128757,
+    "season": "June 23 to August 15"
+  },
+  {
+    "id": "pauline-vanier-park-wading-pool",
+    "name": "Pauline Vanier Park Wading Pool",
+    "address": "1015 Harkness Ave.",
+    "lat": 45.36671016904346,
+    "lng": -75.67655901466837,
+    "season": "June 23 to August 15"
+  },
+  {
+    "id": "frank-j-licari-park-wading-pool",
+    "name": "Frank J. Licari Park Wading Pool",
+    "address": "1990 Cochrane St.",
+    "lat": 45.36886086032034,
+    "lng": -75.65708630342479,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "raven-park-wading-pool",
+    "name": "Raven Park Wading Pool",
+    "address": "1500 Larose Ave.",
+    "lat": 45.37653804074895,
+    "lng": -75.74042790545592,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "ev-tremblay-park-wading-pool",
+    "name": "Ev Tremblay Park Wading Pool",
+    "address": "108 Beech St.",
+    "lat": 45.39934611086171,
+    "lng": -75.71148292846186,
+    "season": "June 23 to August 16"
+  },
+  {
+    "id": "hampton-park-wading-pool",
+    "name": "Hampton Park Wading Pool",
+    "address": "645 Parkview Rd.",
+    "lat": 45.387429530369175,
+    "lng": -75.73836344398235,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "alexander-park-wading-pool",
+    "name": "Alexander Park Wading Pool",
+    "address": "960 Silver St.",
+    "lat": 45.3803301938746,
+    "lng": -75.73163858569683,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "champlain-park-wading-pool",
+    "name": "Champlain Park Wading Pool",
+    "address": "140 Carleton Ave.",
+    "lat": 45.40431589976592,
+    "lng": -75.74496450993013,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "meadowvale-terrace-park-wading-pool",
+    "name": "Meadowvale Terrace Park Wading Pool",
+    "address": "1205 Trenton Ave.",
+    "lat": 45.37828145113373,
+    "lng": -75.72477696250257,
+    "season": "June 30 to August 22"
+  },
+  {
+    "id": "reid-park-wading-pool",
+    "name": "Reid Park Wading Pool",
+    "address": "40 Reid Ave.",
+    "lat": 45.39809949291915,
+    "lng": -75.72389983488274,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "parkdale-park-wading-pool",
+    "name": "Parkdale Park Wading Pool",
+    "address": "366 Parkdale Ave.",
+    "lat": 45.401386619116145,
+    "lng": -75.73023035072482,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "alta-vista-park-wading-pool",
+    "name": "Alta Vista Park Wading Pool",
+    "address": "1309 Randall Ave.",
+    "lat": 45.38308172410675,
+    "lng": -75.66639714551195,
+    "season": "June 23 to August 16"
+  },
+  {
+    "id": "cecil-morrison-park-wading-pool",
+    "name": "Cecil Morrison Park Wading Pool",
+    "address": "1332 Avenue N.",
+    "lat": 45.41717589185867,
+    "lng": -75.64599611525378,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "balena-park-wading-pool",
+    "name": "Balena Park Wading Pool",
+    "address": "1640 Devon Rd.",
+    "lat": 45.40505998678793,
+    "lng": -75.64341396366511,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "brantwood-park-wading-pool",
+    "name": "Brantwood Park Wading Pool",
+    "address": "120 Clegg St.",
+    "lat": 45.40613220413703,
+    "lng": -75.67162178583196,
+    "season": "June 30 to August 23"
+  },
+  {
+    "id": "st-luke-s-park-wading-pool",
+    "name": "St. Luke's Park Wading Pool",
+    "address": "166 Frank St.",
+    "lat": 45.41513265658529,
+    "lng": -75.68696475935644,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "sylvia-holden-park-wading-pool",
+    "name": "Sylvia Holden Park Wading Pool",
+    "address": "10 Fifth Ave.",
+    "lat": 45.402570494991586,
+    "lng": -75.6821864496803,
+    "season": "June 30 to August 23"
+  },
+  {
+    "id": "windsor-park-wading-pool",
+    "name": "Windsor Park Wading Pool",
+    "address": "1B Windsor Ave.",
+    "lat": 45.39453218603812,
+    "lng": -75.67593721789669,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "canterbury-complex-wading-pool",
+    "name": "Canterbury Complex Wading Pool",
+    "address": "2185 Arch St.",
+    "lat": 45.38952164212471,
+    "lng": -75.62883265460205,
+    "season": "June 29 to August 30"
+  },
+  {
+    "id": "alda-burt-park-wading-pool",
+    "name": "Alda Burt Park Wading Pool",
+    "address": "1816 St Laurent Blvd.",
+    "lat": 45.40273306820019,
+    "lng": -75.62566700142227,
+    "season": "June 22 to August 15"
+  },
+  {
+    "id": "hawthorne-park-wading-pool",
+    "name": "Hawthorne Park Wading Pool",
+    "address": "2139 Tawney Rd.",
+    "lat": 45.39368089930531,
+    "lng": -75.6159267053405,
+    "season": "June 30 to August 22"
+  },
+  {
+    "id": "iona-park-wading-pool",
+    "name": "Iona Park Wading Pool",
+    "address": "223 Iona St.",
+    "lat": 45.39242582425271,
+    "lng": -75.74247203625798,
+    "season": "June 30 to August 22"
+  },
+  {
+    "id": "heron-park-wading-pool",
+    "name": "Heron Park Wading Pool",
+    "address": "999 Heron Rd.",
+    "lat": 45.37955540820033,
+    "lng": -75.67726553065619,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "weston-park-wading-pool",
+    "name": "Weston Park Wading Pool",
+    "address": "955 Pleasant Park Rd.",
+    "lat": 45.39596271636088,
+    "lng": -75.62613467783392,
+    "season": "June 23 to August 16"
+  },
+  {
+    "id": "britannia-park-wading-pool",
+    "name": "Britannia Park Wading Pool",
+    "address": "2844 Ahern Ave.",
+    "lat": 45.36063791102319,
+    "lng": -75.79935158138416,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "frank-ryan-park-wading-pool",
+    "name": "Frank Ryan Park Wading Pool",
+    "address": "950 Alpine Ave.",
+    "lat": 45.35618157216504,
+    "lng": -75.7891377653498,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "lisa-park-wading-pool",
+    "name": "Lisa Park Wading Pool",
+    "address": "6 Lisa Ave.",
+    "lat": 45.34420361189925,
+    "lng": -75.7888849354114,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "marlene-catterall-wading-pool",
+    "name": "Marlene Catterall Wading Pool",
+    "address": "2955 Michèle Dr.",
+    "lat": 45.35488658214674,
+    "lng": -75.80201900914442,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "ruth-wildgen-park-wading-pool",
+    "name": "Ruth Wildgen Park Wading Pool",
+    "address": "1099 Grenon Ave.",
+    "lat": 45.35143574980081,
+    "lng": -75.79574854388244,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "agincourt-park-wading-pool",
+    "name": "Agincourt Park Wading Pool",
+    "address": "1269 Albany Dr.",
+    "lat": 45.359592231145115,
+    "lng": -75.75360944527021,
+    "season": "June 30 to August 23"
+  },
+  {
+    "id": "bel-air-park-wading-pool",
+    "name": "Bel Air Park Wading Pool",
+    "address": "2149 Berwick Ave.",
+    "lat": 45.35750853081821,
+    "lng": -75.76237762317908,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "kingsmere-park-wading-pool",
+    "name": "Kingsmere Park Wading Pool",
+    "address": "2074 Benjamin Ave.",
+    "lat": 45.36492415869018,
+    "lng": -75.7625479464519,
+    "season": "June 23 to August 15"
+  },
+  {
+    "id": "carleton-heights-park-wading-pool",
+    "name": "Carleton Heights Park Wading Pool",
+    "address": "1665 Apeldoorn Ave.",
+    "lat": 45.3596357603397,
+    "lng": -75.70254191648897,
+    "season": "June 22 to August 15"
+  },
+  {
+    "id": "st-laurent-don-gamble-complex-wading-pool",
+    "name": "St-Laurent / Don Gamble Complex Wading Pool",
+    "address": "525 Côté St.",
+    "lat": 45.436351255432854,
+    "lng": -75.64849014390968,
+    "season": "June 22 to August 15"
+  },
+  {
+    "id": "optimiste-park-wading-pool",
+    "name": "Optimiste Park Wading Pool",
+    "address": "43 Ste-Cécile St.",
+    "lat": 45.44223766125371,
+    "lng": -75.6685078603412,
+    "season": "June 30 to August 23"
+  },
+  {
+    "id": "overbrook-park-wading-pool",
+    "name": "Overbrook Park Wading Pool",
+    "address": "33 Quill St.",
+    "lat": 45.425070421214144,
+    "lng": -75.65710232757283,
+    "season": "June 29 to August 22"
+  },
+  {
+    "id": "st-paul-s-park-wading-pool",
+    "name": "St. Paul's Park Wading Pool",
+    "address": "469 Donald St.",
+    "lat": 45.43004145643712,
+    "lng": -75.64813126066548,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "alvin-heights-park-wading-pool",
+    "name": "Alvin Heights Park Wading Pool",
+    "address": "349 Claremont Dr.",
+    "lat": 45.451479564382446,
+    "lng": -75.65100870375936,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "bingham-park-wading-pool",
+    "name": "Bingham Park Wading Pool",
+    "address": "145 Cathcart St",
+    "lat": 45.43364510783333,
+    "lng": -75.69570714304024,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "annie-pootoogook-park-wading-pool",
+    "name": "Annie Pootoogook Park Wading Pool",
+    "address": "250 Somerset St. E.",
+    "lat": 45.4216283748366,
+    "lng": -75.6767917861248,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "strathcona-park-wading-pool",
+    "name": "Strathcona Park Wading Pool",
+    "address": "25 Range Rd.",
+    "lat": 45.428143209118815,
+    "lng": -75.67270686625353,
+    "season": "June 23 to August 16"
+  },
+  {
+    "id": "kiwanis-park-wading-pool",
+    "name": "Kiwanis Park Wading Pool",
+    "address": "395 Levis St.",
+    "lat": 45.436650377877854,
+    "lng": -75.65314626384256,
+    "season": "June 23 to August 15"
+  },
+  {
+    "id": "dutchie-s-hole-park-wading-pool",
+    "name": "Dutchie's Hole Park Wading Pool",
+    "address": "154 Mann Ave.",
+    "lat": 45.42078469504605,
+    "lng": -75.66809864089835,
+    "season": "June 29 to August 23"
+  },
+  {
+    "id": "r-george-pushman-park-wading-pool",
+    "name": "R. George Pushman Park Wading Pool",
+    "address": "1270 Pebble Rd.",
+    "lat": 45.359589595229785,
+    "lng": -75.64825277397732,
+    "season": "June 22 to August 16"
+  },
+  {
+    "id": "elizabeth-manley-park-wading-pool",
+    "name": "Elizabeth Manley Park Wading Pool",
+    "address": "1161 Blohm Dr.",
+    "lat": 45.36999070904713,
+    "lng": -75.61936964778722,
+    "season": "June 30 to August 23"
+  },
+  {
+    "id": "bellevue-manor-park-wading-pool",
+    "name": "Bellevue Manor Park Wading Pool",
+    "address": "1520 Caldwell Ave.",
+    "lat": 45.372233154271896,
+    "lng": -75.73886856846323,
+    "season": "June 29 to August 23"
+  }
+]

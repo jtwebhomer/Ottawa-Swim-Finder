@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/constants/sync_rate_limit_policy.dart';
 import '../../core/logging/app_logger.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/ottawa_time.dart';
 import '../../data/services/facility_interaction_service.dart';
 import '../../data/services/app_version_service.dart';
@@ -16,10 +18,11 @@ import '../../data/services/parser_health_service.dart';
 import '../../data/services/sync_health_service.dart';
 import '../../data/services/incremental_sync_engine.dart';
 import '../../data/services/seed_database_service.dart';
+import '../../data/services/schedule_trust_resolver.dart';
 import '../../data/services/sync_freshness_service.dart';
 import '../../data/services/sync_service.dart';
 import '../../domain/entities/sync_freshness.dart';
-import '../../data/scraper/ottawa_scraper.dart';
+import '../../domain/entities/sync_result.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/saved_swim.dart';
 import '../../domain/entities/schedule_entry.dart';
@@ -29,6 +32,7 @@ import '../../domain/entities/facility_sync_diagnostic.dart';
 import '../../domain/entities/facility_inclusion_trace.dart';
 import '../../domain/entities/facility_type.dart';
 import '../../domain/entities/sync_progress.dart';
+import '../../domain/entities/schedule_trust_status.dart';
 import '../../domain/entities/sync_status.dart';
 import '../../domain/repositories/repositories.dart';
 import '../../domain/usecases/swim_usecases.dart';
@@ -53,6 +57,7 @@ class AppState extends ChangeNotifier {
     required IncrementalSyncEngine incrementalSync,
     required SyncFreshnessService freshnessService,
     required FacilityInteractionService interactionService,
+    ScheduleTrustResolver? trustResolver,
   })  : _facilityRepo = facilityRepo,
         _scheduleRepo = scheduleRepo,
         _scrapeLogRepo = scrapeLogRepo,
@@ -70,7 +75,8 @@ class AppState extends ChangeNotifier {
         _seedService = seedService,
         _incrementalSync = incrementalSync,
         _freshnessService = freshnessService,
-        _interactionService = interactionService;
+        _interactionService = interactionService,
+        _trustResolver = trustResolver ?? ScheduleTrustResolver(settingsRepo: settingsRepo);
 
   final FacilityRepository _facilityRepo;
   final ScheduleRepository _scheduleRepo;
@@ -90,6 +96,7 @@ class AppState extends ChangeNotifier {
   final IncrementalSyncEngine _incrementalSync;
   final SyncFreshnessService _freshnessService;
   final FacilityInteractionService _interactionService;
+  final ScheduleTrustResolver _trustResolver;
   final _traceLogger = ScheduleTraceLogger();
 
   /// Prevents overlapping background/manual sync runs.
@@ -112,13 +119,16 @@ class AppState extends ChangeNotifier {
   FacilityCatalogAudit? facilityCatalogAudit;
   FacilityType? facilityTypeFilter;
   FacilityScheduleMode? scheduleModeFilter;
+  FacilityType? mapFacilityTypeFilter;
   Map<String, int> facilitySessionCounts = {};
   bool backgroundSyncActive = false;
   SyncFreshnessSnapshot? syncFreshness;
+  ScheduleTrustSummary? trustSummary;
   bool shouldShowWelcomeSheet = false;
   bool welcomeSheetScheduled = false;
   bool isOnline = true;
   String? syncMessage;
+  String? lastSyncEngine;
   String onboardingStage = 'Checking…';
   String appVersion = '—';
   String? lastSyncedAppVersion;
@@ -127,6 +137,8 @@ class AppState extends ChangeNotifier {
   int onboardingFacilityCount = 0;
   int onboardingSessionCount = 0;
   ParserHealthSnapshot? parserHealth;
+
+  int _staleThresholdHours = SyncRateLimitPolicy.defaultStaleThresholdHours;
 
   List<Facility> facilities = [];
   List<ScheduleEntry> searchResults = [];
@@ -146,6 +158,7 @@ class AppState extends ChangeNotifier {
   List<ScheduleValidationWarning> validationWarnings = [];
   List<RawNameAuditEntry> rawNameAudit = [];
   List<String> unknownCategories = [];
+  List<CategoryInventoryRow> categoryInventory = [];
   int futureSessionCount = 0;
   int totalSessionCount = 0;
   int scrapeErrorCount = 0;
@@ -166,12 +179,50 @@ class AppState extends ChangeNotifier {
     isOnline = await _connectivity.checkOnline();
     appVersion = await _versionService.fullVersionLabel();
     lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
+    lastSyncEngine = await _settingsRepo.getString(AppConstants.settingsLastSyncEngine);
+
+    onboardingStage = 'Loading facilities…';
+    notifyListeners();
 
     await _seedService.ensureSeeded();
+
+    final initialSyncDone = await _settingsRepo.getBool(
+      AppConstants.settingsInitialApiSyncDone,
+    );
+
+    if (isOnline && !initialSyncDone) {
+      onboardingStage = 'Downloading swim schedules…';
+      isSyncing = true;
+      notifyListeners();
+
+      try {
+        await _incrementalSync.runManualSync(
+          onProgress: _onSyncProgress,
+        );
+        await _settingsRepo.setBool(AppConstants.settingsInitialApiSyncDone, true);
+      } catch (e, st) {
+        appLogger.w('[bootstrap] Initial API sync failed', error: e, stackTrace: st);
+        onboardingStage = 'Using cached schedules…';
+        notifyListeners();
+      } finally {
+        isSyncing = false;
+        syncProgress = null;
+      }
+    }
+
+    onboardingStage = 'Preparing home…';
+    notifyListeners();
+
     await refreshAll();
     syncFreshness = await _freshnessService.load();
+    trustSummary = syncFreshness?.trustSummary;
     onboardingFacilityCount = facilities.length;
     onboardingSessionCount = totalSessionCount;
+
+    if ((trustSummary?.fixture ?? 0) > 0 && (trustSummary?.verified ?? 0) == 0) {
+      syncMessage =
+          'Using bundled schedule data. Live verification will occur automatically.';
+    }
 
     final welcomeDone = await _settingsRepo.isOnboardingComplete();
     shouldShowWelcomeSheet = !welcomeDone;
@@ -225,6 +276,7 @@ class AppState extends ChangeNotifier {
       final result = await _syncInFlight!;
       _applySyncResult(result.syncResult);
       lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
+      lastSyncEngine = await _settingsRepo.getString(AppConstants.settingsLastSyncEngine);
       syncFreshness = await _freshnessService.load();
       await refreshAll();
     } finally {
@@ -255,7 +307,9 @@ class AppState extends ChangeNotifier {
     lastSyncRootCause = result.rootCauseSummary;
     lastFacilityDiagnostics = result.facilityDiagnostics;
 
-    if (result.antiCorruptionTriggered) {
+    if (result.isOffline) {
+      syncMessage = 'Offline mode — showing cached schedules.';
+    } else if (result.antiCorruptionTriggered) {
       syncAnomalyWarning = result.antiCorruptionReason ??
           'Source schedule data appears incomplete. '
           'Using previously verified schedule data.';
@@ -276,9 +330,9 @@ class AppState extends ChangeNotifier {
         SyncStatus.partialSuccess =>
           'Some pool schedules are still updating. Your saved swims remain available.',
         SyncStatus.failed when result.isFirstInstallBlocked =>
-          'Schedules are updating in the background. Check back in a few minutes.',
+          'Using bundled schedule data. Live verification will occur automatically.',
         SyncStatus.failed when result.isMostlyBlocked =>
-          'Most schedules could not refresh right now. Cached swims remain available.',
+          'Live updates temporarily unavailable. Showing last verified schedules.',
         SyncStatus.failed => 'Could not refresh all schedules. Cached swims remain available.',
       };
     }
@@ -306,6 +360,19 @@ class AppState extends ChangeNotifier {
     }).toList();
   }
 
+  /// Aquatic facilities with coordinates for map rendering.
+  List<Facility> get mapVisibleFacilities {
+    return facilities.where((f) {
+      if (f.latitude == null || f.longitude == null) return false;
+      if (!f.isAquatic) return false;
+      if (mapFacilityTypeFilter != null &&
+          f.facilityType != mapFacilityTypeFilter) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+
   Map<String, int> get facilityBrowseCounts {
     int countType(FacilityType type) =>
         facilities.where((f) => f.facilityType == type).length;
@@ -313,7 +380,9 @@ class AppState extends ChangeNotifier {
       'total': facilities.length,
       'visible': filteredFacilities.length,
       'indoor': facilities
-          .where((f) => f.facilityType == FacilityType.indoorPool)
+          .where((f) =>
+              f.facilityType == FacilityType.indoorPool ||
+              f.facilityType == FacilityType.wavePool)
           .length,
       'outdoor': countType(FacilityType.outdoorPool),
       'wave': countType(FacilityType.wavePool),
@@ -324,11 +393,28 @@ class AppState extends ChangeNotifier {
 
   FacilityBrowseStatus browseStatusFor(Facility facility) {
     final sessions = facilitySessionCounts[facility.id] ?? 0;
+    final trust = effectiveTrustFor(facility, sessions);
     return FacilityBrowseHelper.statusFor(
       facility: facility,
       sessionCount: sessions,
       todaySessionCount: sessions,
+      trustStatus: trust,
     );
+  }
+
+  ScheduleTrustStatus effectiveTrustFor(Facility facility, int sessionCount) {
+    return _trustResolver.resolve(
+      facility: facility,
+      scheduleCount: sessionCount,
+      staleThresholdHours: _staleThresholdHours,
+      syncBlocked: lastSyncStatus == SyncStatus.failed ||
+          lastSyncStatus == SyncStatus.partialSuccess,
+    );
+  }
+
+  void setMapFacilityTypeFilter(FacilityType? type) {
+    mapFacilityTypeFilter = type;
+    notifyListeners();
   }
 
   void setFacilityTypeFilter(FacilityType? type) {
@@ -420,6 +506,7 @@ class AppState extends ChangeNotifier {
     parserHealth = await _syncService.parserHealthSnapshot();
     savedSwims = await _savedSwimRepo.getAll(upcomingOnly: true);
     unknownCategories = await _scheduleRepo.getUnknownRawCategories();
+    categoryInventory = await _scheduleRepo.getCategoryInventory();
     futureSessionCount = await _scheduleRepo.countFutureSessions(today);
     totalSessionCount = await _scheduleRepo.countAllSchedules();
     scrapeErrorCount = (await _scrapeLogRepo.getErrors()).length;
@@ -477,6 +564,9 @@ class AppState extends ChangeNotifier {
     }
 
     syncFreshness = await _freshnessService.load();
+    trustSummary = syncFreshness?.trustSummary;
+    lastSyncEngine = await _settingsRepo.getString(AppConstants.settingsLastSyncEngine);
+    _staleThresholdHours = await _trustResolver.staleThresholdHours();
     if (generation != _refreshGeneration) return;
     notifyListeners();
   }
@@ -584,6 +674,7 @@ class AppState extends ChangeNotifier {
       final result = await _syncInFlight!;
       _applySyncResult(result.syncResult);
       lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
+      lastSyncEngine = await _settingsRepo.getString(AppConstants.settingsLastSyncEngine);
       syncFreshness = await _freshnessService.load();
       await refreshAll();
     } finally {
@@ -760,6 +851,7 @@ class AppState extends ChangeNotifier {
     String? date,
     String? endDate,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? maxDistanceKm,
   }) async {
@@ -769,6 +861,7 @@ class AppState extends ChangeNotifier {
         fromTime: '00:00',
         toDate: endDate,
         categories: categories,
+        rawCategories: rawCategories,
         facilityId: facilityId,
         userLat: userLat,
         userLng: userLng,
@@ -791,17 +884,13 @@ class AppState extends ChangeNotifier {
       userLat: userLat,
       userLng: userLng,
     );
-    if (categories != null && categories.isNotEmpty) {
-      results = results.where((e) => categories.contains(e.category)).toList();
-    }
-    if (facilityId != null) {
-      results = results.where((e) => e.facilityId == facilityId).toList();
-    }
-    if (maxDistanceKm != null) {
-      results = results
-          .where((e) => (e.distanceKm ?? double.infinity) <= maxDistanceKm)
-          .toList();
-    }
+    results = _applyClientFilters(
+      results,
+      categories: categories,
+      rawCategories: rawCategories,
+      facilityId: facilityId,
+      maxDistanceKm: maxDistanceKm,
+    );
     return results;
   }
 
@@ -810,6 +899,7 @@ class AppState extends ChangeNotifier {
     String? date,
     String? endDate,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? maxDistanceKm,
     bool nextAcrossDays = false,
@@ -821,6 +911,7 @@ class AppState extends ChangeNotifier {
         fromTime: time,
         toDate: endDate,
         categories: categories,
+        rawCategories: rawCategories,
         facilityId: facilityId,
         userLat: userLat,
         userLng: userLng,
@@ -834,6 +925,7 @@ class AppState extends ChangeNotifier {
         userLat: userLat,
         userLng: userLng,
         categories: categories,
+        rawCategories: rawCategories,
         facilityId: facilityId,
         maxDistanceKm: maxDistanceKm,
       );
@@ -844,9 +936,49 @@ class AppState extends ChangeNotifier {
       userLat: userLat,
       userLng: userLng,
       categories: categories,
+      rawCategories: rawCategories,
       facilityId: facilityId,
       maxDistanceKm: maxDistanceKm,
     );
+  }
+
+  List<ScheduleEntry> _applyClientFilters(
+    List<ScheduleEntry> results, {
+    List<String>? categories,
+    List<String>? rawCategories,
+    String? facilityId,
+    double? maxDistanceKm,
+  }) {
+    if (categories != null && categories.isNotEmpty) {
+      final expanded = {
+        ...categories,
+        if (categories.contains(SwimCategories.generalSwim))
+          ...['public_swim', 'open_swim', 'other'],
+      };
+      results = results.where((e) => expanded.contains(e.category)).toList();
+    }
+    if (rawCategories != null && rawCategories.isNotEmpty) {
+      results = results
+          .where(
+            (e) =>
+                rawCategories.contains(e.rawCategory) ||
+                rawCategories.contains(
+                  e.rawCategory?.trim().isNotEmpty == true
+                      ? e.rawCategory
+                      : e.category,
+                ),
+          )
+          .toList();
+    }
+    if (facilityId != null) {
+      results = results.where((e) => e.facilityId == facilityId).toList();
+    }
+    if (maxDistanceKm != null) {
+      results = results
+          .where((e) => (e.distanceKm ?? double.infinity) <= maxDistanceKm)
+          .toList();
+    }
+    return results;
   }
 
   Future<bool> getNotificationSetting(String key) =>

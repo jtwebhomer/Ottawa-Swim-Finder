@@ -6,7 +6,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _dbName = 'ottawa_swim_finder.db';
-  static const _dbVersion = 7;
+  static const _dbVersion = 9;
 
   Database? _db;
 
@@ -44,7 +44,13 @@ class AppDatabase {
         sync_status TEXT DEFAULT 'OK',
         has_pool INTEGER DEFAULT 1,
         facility_type TEXT DEFAULT 'INDOOR_POOL',
+        data_model TEXT DEFAULT 'SWIM_SCHEDULE',
+        display_status TEXT DEFAULT 'LIVE_OK',
         schedule_mode TEXT DEFAULT 'HAS_SWIM_SCHEDULE',
+        schedule_trust_status TEXT DEFAULT 'UNVERIFIED',
+        schedule_source TEXT DEFAULT 'none',
+        schedule_verified_at INTEGER,
+        fixture_generated_at INTEGER,
         metadata_json TEXT
       )
     ''');
@@ -248,6 +254,28 @@ class AppDatabase {
     }
     if (oldVersion < 7) {
       await _createHabitEventsTable(db);
+    }
+    if (oldVersion < 8) {
+      await db.execute(
+        "ALTER TABLE facilities ADD COLUMN schedule_trust_status TEXT DEFAULT 'UNVERIFIED'",
+      );
+      await db.execute(
+        "ALTER TABLE facilities ADD COLUMN schedule_source TEXT DEFAULT 'none'",
+      );
+      await db.execute(
+        'ALTER TABLE facilities ADD COLUMN schedule_verified_at INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE facilities ADD COLUMN fixture_generated_at INTEGER',
+      );
+    }
+    if (oldVersion < 9) {
+      await db.execute(
+        "ALTER TABLE facilities ADD COLUMN data_model TEXT DEFAULT 'SWIM_SCHEDULE'",
+      );
+      await db.execute(
+        "ALTER TABLE facilities ADD COLUMN display_status TEXT DEFAULT 'LIVE_OK'",
+      );
     }
   }
 

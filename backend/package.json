@@ -1,0 +1,30 @@
+{
+  "name": "ottawa-swim-finder-api",
+  "version": "1.0.0",
+  "description": "Centralized schedule scraper and API for Ottawa Swim Finder",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "sync": "node src/cli-weekly-sync.js",
+    "sync:weekly": "node src/cli-weekly-sync.js",
+    "sync:repair": "node src/cli-repair-sync.js",
+    "seed": "node src/seed.js",
+    "test": "node --test src/api.test.js src/parser.test.js src/dataSafety.test.js src/facilityRegistry.test.js src/facilityCoverage.test.js src/blockClassifier.test.js src/debugActions.test.js src/cacheImport.test.js",
+    "import:cache": "node src/cli-import-cache.js",
+    "assert:coverage": "node scripts/assert-facility-coverage.js",
+    "build:registry": "node scripts/build-facility-registry.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

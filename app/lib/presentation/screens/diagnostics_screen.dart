@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
+import '../../data/services/facility_coverage_report_service.dart';
 import '../../data/services/qa_checklist_service.dart';
 import '../../di/injection.dart';
 import '../providers/app_state.dart';
@@ -17,11 +18,24 @@ class DiagnosticsScreen extends StatefulWidget {
 class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   List<QaTestItem> _qaTests = [];
   bool _qaLoading = true;
+  FacilityCoverageReport? _coverage;
+  bool _coverageLoading = false;
 
   @override
   void initState() {
     super.initState();
     _loadQa();
+    _loadCoverage();
+  }
+
+  Future<void> _loadCoverage() async {
+    setState(() => _coverageLoading = true);
+    try {
+      final report = await getIt<FacilityCoverageReportService>().build();
+      if (mounted) setState(() => _coverage = report);
+    } finally {
+      if (mounted) setState(() => _coverageLoading = false);
+    }
   }
 
   Future<void> _loadQa() async {
@@ -198,6 +212,111 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 ),
               ),
             ),
+          ],
+          const SizedBox(height: 16),
+          Text('Facility Coverage', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          if (_coverageLoading)
+            const Center(child: Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(),
+            ))
+          else if (_coverage != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _row('Total facilities', '${_coverage!.totalFacilitiesDiscovered}'),
+                    _row('Indoor pools', '${_coverage!.indoorPoolCount}'),
+                    _row('Outdoor pools', '${_coverage!.outdoorPoolCount}'),
+                    _row('Wading pools', '${_coverage!.wadingPoolCount}'),
+                    _row('Wave pools', '${_coverage!.wavePoolCount}'),
+                    _row('Hidden from map', '${_coverage!.facilitiesHiddenFromMap.length}'),
+                    _row('Missing schedules', '${_coverage!.facilitiesMissingSchedules.length}'),
+                    _row('Categories discovered', '${_coverage!.categoriesDiscovered}'),
+                    _row('Discovered indoor (live)', '${_coverage!.discoveredIndoorCount}'),
+                    _row('Canonical indoor + wave', '${_coverage!.canonicalIndoorCount}'),
+                    _row('Stale facilities', '${_coverage!.staleFacilities.length}'),
+                    _row('Zero upcoming swims', '${_coverage!.facilitiesWithZeroUpcoming.length}'),
+                    _row('Unknown categories', '${_coverage!.unknownCategories.length}'),
+                    const SizedBox(height: 8),
+                    Text('Facilities by type', style: Theme.of(context).textTheme.titleSmall),
+                    for (final e in _coverage!.facilitiesByType.entries)
+                      _row(e.key, '${e.value}'),
+                  ],
+                ),
+              ),
+            ),
+            if (_coverage!.missingFromDiscovery.isNotEmpty)
+              Card(
+                margin: const EdgeInsets.only(top: 8),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Discovery gaps', style: Theme.of(context).textTheme.titleSmall),
+                      for (final gap in _coverage!.missingFromDiscovery.take(10))
+                        Text('• ${gap.name}: ${gap.reason}'),
+                    ],
+                  ),
+                ),
+              ),
+            if (_coverage!.facilitiesHiddenFromMap.isNotEmpty)
+              Card(
+                margin: const EdgeInsets.only(top: 8),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Hidden from map', style: Theme.of(context).textTheme.titleSmall),
+                      for (final name in _coverage!.facilitiesHiddenFromMap)
+                        Text('• $name'),
+                    ],
+                  ),
+                ),
+              ),
+            if (_coverage!.categoryInventory.isNotEmpty)
+              Card(
+                margin: const EdgeInsets.only(top: 8),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Category inventory', style: Theme.of(context).textTheme.titleSmall),
+                      for (final row in _coverage!.categoryInventory.take(15))
+                        Text(
+                          '${row.rawCategory} → ${row.normalizedCategory} '
+                          '(${row.facilityCount} facilities, ${row.sessionCount} sessions)',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            if (_coverage!.categoryAudit.isNotEmpty)
+              Card(
+                margin: const EdgeInsets.only(top: 8),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Category audit (top)', style: Theme.of(context).textTheme.titleSmall),
+                      for (final row in _coverage!.categoryAudit.take(12))
+                        Text(
+                          '${row.rawCategory} → ${row.normalizedCategory} '
+                          '(${row.facilityName}, ${row.occurrences})',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
           ],
           const SizedBox(height: 16),
           Text('Data Quality', style: Theme.of(context).textTheme.titleLarge),

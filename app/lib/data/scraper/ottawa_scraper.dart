@@ -10,6 +10,7 @@ import '../../core/constants/sync_rate_limit_policy.dart';
 import '../../core/constants/sync_thresholds.dart';
 import '../../core/logging/app_logger.dart';
 import '../../core/utils/ottawa_time.dart';
+import '../../domain/entities/sync_result.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/facility_fetch_tier.dart';
 import '../../domain/entities/facility_priority.dart';
@@ -20,12 +21,15 @@ import '../../domain/entities/schedule_entry.dart';
 import '../../domain/entities/scrape_log.dart';
 import '../../domain/entities/sync_log.dart';
 import '../../domain/entities/sync_progress.dart';
+import '../../domain/entities/schedule_trust_status.dart';
+import '../../domain/entities/sync_engine_mode.dart';
 import '../../domain/entities/sync_status.dart';
 import '../../domain/repositories/repositories.dart';
 import '../services/blocked_page_detector.dart';
 import '../services/facility_backoff_tracker.dart';
 import '../services/facility_discovery_service.dart';
 import '../services/facility_sync_logger.dart';
+import '../services/fetch/playwright_sync_service.dart';
 import '../services/fetch/tiered_facility_page_fetcher.dart';
 import '../services/ottawa_http_client.dart';
 import '../services/partial_refresh_planner.dart';
@@ -104,6 +108,7 @@ class OttawaScraper {
     SettingsRepository? settingsRepo,
     SmartSyncQueue? smartSyncQueue,
     PartialRefreshPlanner? refreshPlanner,
+    PlaywrightSyncService? playwrightSync,
   })  : _facilityRepo = facilityRepo,
         _scheduleRepo = scheduleRepo,
         _scrapeLogRepo = scrapeLogRepo,
@@ -123,7 +128,8 @@ class OttawaScraper {
         _backoffTracker = backoffTracker,
         _settingsRepo = settingsRepo,
         _smartSyncQueue = smartSyncQueue,
-        _refreshPlanner = refreshPlanner ?? const PartialRefreshPlanner();
+        _refreshPlanner = refreshPlanner ?? const PartialRefreshPlanner(),
+        _playwrightSync = playwrightSync;
 
   final FacilityRepository _facilityRepo;
   final ScheduleRepository _scheduleRepo;
@@ -139,6 +145,20 @@ class OttawaScraper {
   final SettingsRepository? _settingsRepo;
   final SmartSyncQueue? _smartSyncQueue;
   final PartialRefreshPlanner _refreshPlanner;
+  final PlaywrightSyncService? _playwrightSync;
+
+  Future<SyncEngineMode> _syncEngineMode() async {
+    if (_settingsRepo == null) return SyncEngineMode.browserPrimary;
+    final raw = await _settingsRepo!.getString(AppConstants.settingsSyncEngineMode);
+    return SyncEngineMode.fromStorage(raw);
+  }
+
+  Future<bool> _playwrightDebugMode() async {
+    if (_settingsRepo == null) return false;
+    return _settingsRepo!.getBool(AppConstants.settingsPlaywrightDebugMode);
+  }
+
+  FacilityRepository get facilityRepo => _facilityRepo;
 
   FacilityDiscoveryService get discoveryService => _discovery;
 
@@ -182,15 +202,20 @@ class OttawaScraper {
     }
 
     final canonical = await _discovery.loadCanonicalFacilities();
+    final syncEngine = await _syncEngineMode();
+    final useBrowser = syncEngine.isBrowserPrimary;
     final discovered = await _discovery.discoverIndoorPoolsFromSource(
-      escalateToBrowser: false,
+      escalateToBrowser: useBrowser,
+    );
+    final outdoorDiscovered = await _discovery.discoverOutdoorPoolsFromSource(
+      escalateToBrowser: useBrowser,
     );
     final existing = {for (final f in existingList) f.id: f};
     final canonicalById = {for (final f in canonical) f.id: f};
 
     final toUpsert = <String, Facility>{};
 
-    for (final row in discovered) {
+    for (final row in [...discovered, ...outdoorDiscovered]) {
       final canonicalRow = canonicalById[row.slug];
       final prev = existing[row.slug];
       var merged = _discovery.mergeDiscoveredWithCanonical(
@@ -229,7 +254,8 @@ class OttawaScraper {
 
     appLogger.i(
       '[catalog] Synced ${toUpsert.length} facilities '
-      '(${discovered.length} from source, ${canonical.length} canonical)',
+      '(${discovered.length} indoor, ${outdoorDiscovered.length} outdoor, '
+      '${canonical.length} canonical)',
     );
 
     if (_settingsRepo != null) {
@@ -257,6 +283,51 @@ class OttawaScraper {
     await syncFacilityCatalog(force: force && isOnboarding);
     _facilitySyncLogger.clear();
 
+    final syncEngine = await _syncEngineMode();
+    var browserSessionStarted = false;
+    if (syncEngine.isBrowserPrimary && _playwrightSync?.isAvailable == true) {
+      browserSessionStarted = await _playwrightSync!.startSession(
+        headless: !(await _playwrightDebugMode()),
+      );
+      if (browserSessionStarted) {
+        appLogger.i('[sync] Playwright browser session started');
+      }
+    }
+
+    try {
+    return await _syncAllBody(
+      force: force,
+      isOnboarding: isOnboarding,
+      phase: phase,
+      anchor: anchor,
+      onProgress: onProgress,
+      syncEngine: syncEngine,
+    );
+    } finally {
+      if (browserSessionStarted) {
+        await _playwrightSync?.endSession();
+        appLogger.i('[sync] Playwright browser session closed');
+      }
+      if (_settingsRepo != null) {
+        final engineLabel = syncEngine.isBrowserPrimary
+            ? _tieredFetcher.browserFetcher.engineLabel
+            : 'HTTP';
+        await _settingsRepo!.setString(
+          AppConstants.settingsLastSyncEngine,
+          engineLabel,
+        );
+      }
+    }
+  }
+
+  Future<SyncResult> _syncAllBody({
+    required bool force,
+    required bool isOnboarding,
+    required SmartSyncPhase phase,
+    SyncLocationContext? anchor,
+    SyncProgressCallback? onProgress,
+    required SyncEngineMode syncEngine,
+  }) async {
     final allFacilities = await _facilityRepo.getAllFacilities();
     final facilities =
         allFacilities.where((f) => f.hasSwimSchedule).toList();
@@ -391,6 +462,7 @@ class OttawaScraper {
           force: force,
           today: today,
           staleThresholdHours: staleThresholdHours,
+          syncEngine: syncEngine,
         );
       }
       phaseResults.add(result);
@@ -654,6 +726,7 @@ class OttawaScraper {
     required bool force,
     required String today,
     required int staleThresholdHours,
+    required SyncEngineMode syncEngine,
   }) async {
     final start = DateTime.now();
     final existingCount =
@@ -673,6 +746,11 @@ class OttawaScraper {
       String? detail,
       String? fetchTier,
       String? tierTrail,
+      int? domSizeBytes,
+      int? loadTimeMs,
+      String? syncEngineLabel,
+      int? scheduleTableCount,
+      bool usedHttpFallback = false,
     }) {
       return FacilitySyncDiagnostic(
         facilityId: facility.id,
@@ -690,8 +768,15 @@ class OttawaScraper {
         detail: detail,
         fetchTier: fetchTier,
         tierTrail: tierTrail,
+        domSizeBytes: domSizeBytes,
+        loadTimeMs: loadTimeMs,
+        syncEngine: syncEngineLabel,
+        scheduleTableCount: scheduleTableCount,
+        usedHttpFallback: usedHttpFallback,
       );
     }
+
+    FacilityPageFetchResult? lastPage;
 
     try {
       if (!force && _isFacilityFresh(facility, staleThresholdHours)) {
@@ -716,10 +801,21 @@ class OttawaScraper {
         url: requestUrl,
         facilityId: facility.id,
         existingCachedSessions: existingCount,
-        escalateToBrowser: false,
+        escalateToBrowser: syncEngine.isBrowserPrimary,
+        syncEngineMode: syncEngine,
       );
       final durationMs = DateTime.now().difference(start).inMilliseconds;
       final tierTrail = fetch.tierTrail;
+      lastPage = fetch.page;
+
+      int? pageDomSize() => lastPage?.domSizeBytes;
+      int? pageLoadMs() => lastPage?.loadTimeMs ?? durationMs;
+      String? pageEngine() => lastPage?.syncEngineLabel ??
+          (syncEngine.isBrowserPrimary
+              ? _tieredFetcher.browserFetcher.engineLabel
+              : 'HTTP');
+      int? pageTables() => lastPage?.scheduleTableCount;
+      bool pageFallback() => fetch.usedHttpFallback || (lastPage?.usedHttpFallback ?? false);
 
       if (fetch.outcome == TieredFetchOutcome.staleCached) {
         final diag = diagnostic(
@@ -749,15 +845,25 @@ class OttawaScraper {
 
       if (fetch.outcome == TieredFetchOutcome.blocked) {
         await _backoffTracker?.recordBlock(facility.id);
+        final browserBlocked = fetch.attempts.any(
+          (a) => a.tier == FacilityFetchTier.browser,
+        );
         final diag = diagnostic(
           kind: existingCount > 0
               ? FacilitySyncFailureKind.cachedFallback
-              : FacilitySyncFailureKind.blockedBotChallenge,
+              : browserBlocked
+                  ? FacilitySyncFailureKind.blockedPlaywright
+                  : FacilitySyncFailureKind.blockedBotChallenge,
           httpStatus: fetch.httpStatus ?? 200,
           sessionsParsed: existingCount,
           detail: fetch.errorMessage ?? tierTrail,
-          fetchTier: 'BLOCKED_ALL_TIERS',
+          fetchTier: browserBlocked ? 'BLOCKED_PLAYWRIGHT' : 'BLOCKED_ALL_TIERS',
           tierTrail: tierTrail,
+          domSizeBytes: pageDomSize(),
+          loadTimeMs: pageLoadMs(),
+          syncEngineLabel: pageEngine(),
+          scheduleTableCount: pageTables(),
+          usedHttpFallback: pageFallback(),
         );
         await _logScrape(
           facilityId: facility.id,
@@ -1124,6 +1230,9 @@ class OttawaScraper {
         lastUpdated: now,
         lastSuccessfulSyncAt: now,
         syncStatus: FacilitySyncStatus.ok,
+        scheduleTrustStatus: ScheduleTrustStatus.verified,
+        scheduleSource: ScheduleSource.live,
+        scheduleVerifiedAt: now,
       ),
     );
 
@@ -1150,6 +1259,10 @@ class OttawaScraper {
         facilityId: f.id,
         syncStatus: FacilitySyncStatus.ok,
         lastSuccessfulSyncAt: f.lastSuccessfulSyncAt ?? now,
+        scheduleTrustStatus:
+            f.scheduleTrustStatus == ScheduleTrustStatus.verified
+                ? ScheduleTrustStatus.verified
+                : f.scheduleTrustStatus,
       );
       return;
     }
@@ -1161,6 +1274,7 @@ class OttawaScraper {
         facilityId: f.id,
         syncStatus: FacilitySyncStatus.stale,
         lastSuccessfulSyncAt: f.lastSuccessfulSyncAt,
+        scheduleTrustStatus: _trustWhenBlocked(f),
       );
       return;
     }
@@ -1173,6 +1287,9 @@ class OttawaScraper {
         syncStatus: result.existingCount > 0
             ? FacilitySyncStatus.stale
             : FacilitySyncStatus.failed,
+        scheduleTrustStatus: result.existingCount > 0
+            ? _trustWhenBlocked(f)
+            : f.scheduleTrustStatus,
       );
       return;
     }
@@ -1184,81 +1301,20 @@ class OttawaScraper {
         syncStatus: result.existingCount > 0
             ? FacilitySyncStatus.stale
             : FacilitySyncStatus.failed,
+        scheduleTrustStatus: result.existingCount > 0
+            ? _trustWhenBlocked(f)
+            : f.scheduleTrustStatus,
       );
     }
   }
-}
 
-class SyncResult {
-  const SyncResult({
-    required this.syncStatus,
-    required this.updated,
-    required this.skipped,
-    required this.errors,
-    this.rejected = 0,
-    this.blocked = 0,
-    this.parseEmpty = 0,
-    this.pipelineCrashes = 0,
-    this.staleCount = 0,
-    this.http403Count = 0,
-    this.scheduleCountBefore = 0,
-    this.scheduleCountAfter = 0,
-    this.totalFacilities = 0,
-    this.antiCorruptionTriggered = false,
-    this.antiCorruptionReason,
-    this.rootCauseSummary,
-    this.facilitiesParsed = 0,
-    this.successRate = 1.0,
-    this.projectedFutureSessions = 0,
-    this.failedFacilityNames = const [],
-    this.staleFacilityNames = const [],
-    this.blockedFacilityNames = const [],
-    this.parseEmptyFacilityNames = const [],
-    this.facilityDiagnostics = const [],
-  });
-
-  final SyncStatus syncStatus;
-  final int updated;
-  final int skipped;
-  final int errors;
-  final int rejected;
-  final int blocked;
-  final int parseEmpty;
-  final int pipelineCrashes;
-  final int staleCount;
-  final int http403Count;
-  final int scheduleCountBefore;
-  final int scheduleCountAfter;
-  final int totalFacilities;
-  final bool antiCorruptionTriggered;
-  final String? antiCorruptionReason;
-  final String? rootCauseSummary;
-  final int facilitiesParsed;
-  final double successRate;
-  final int projectedFutureSessions;
-  final List<String> failedFacilityNames;
-  final List<String> staleFacilityNames;
-  final List<String> blockedFacilityNames;
-  final List<String> parseEmptyFacilityNames;
-  final List<FacilitySyncDiagnostic> facilityDiagnostics;
-
-  bool get globalRejected => antiCorruptionTriggered;
-  String? get globalRejectReason => antiCorruptionReason;
-  bool get success => syncStatus == SyncStatus.success;
-  bool get isHealthy =>
-      !antiCorruptionTriggered &&
-      (scheduleCountAfter > 0 ||
-          (scheduleCountAfter >= scheduleCountBefore && errors < totalFacilities));
-
-  String get statusLabel => switch (syncStatus) {
-        SyncStatus.success => 'success',
-        SyncStatus.partialSuccess => 'partial',
-        SyncStatus.failed => 'failed',
-      };
-
-  bool get isMostlyBlocked =>
-      blocked > 0 && blocked >= (totalFacilities * 0.5).ceil();
-
-  bool get isFirstInstallBlocked =>
-      scheduleCountAfter == 0 && blocked > 0 && errors == 0;
+  ScheduleTrustStatus _trustWhenBlocked(Facility facility) {
+    if (facility.scheduleTrustStatus == ScheduleTrustStatus.verified) {
+      return ScheduleTrustStatus.cached;
+    }
+    if (facility.scheduleTrustStatus == ScheduleTrustStatus.fixture) {
+      return ScheduleTrustStatus.fixture;
+    }
+    return facility.scheduleTrustStatus;
+  }
 }

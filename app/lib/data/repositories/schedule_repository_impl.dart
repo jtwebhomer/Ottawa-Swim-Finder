@@ -12,17 +12,10 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
 
   final AppDatabase _db;
 
-  /// Categories stored in SQLite (includes legacy values pre-normalization).
-  static const _dbCategories = [
-    ...SwimCategories.all,
-    'public_swim',
-    'open_swim',
-    'other',
-  ];
-
   @override
   Future<List<ScheduleEntry>> searchSchedules({
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     String? date,
     String? startAfter,
@@ -36,11 +29,12 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
     final where = <String>[];
     final args = <Object?>[];
 
-    if (categories != null && categories.isNotEmpty) {
-      final expanded = _expandCategoryFilter(categories);
-      where.add('s.category IN (${List.filled(expanded.length, '?').join(',')})');
-      args.addAll(expanded);
-    }
+    _appendCategoryFilters(
+      where: where,
+      args: args,
+      categories: categories,
+      rawCategories: rawCategories,
+    );
     if (facilityId != null) {
       where.add('s.facility_id = ?');
       args.add(facilityId);
@@ -104,6 +98,55 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
   }
 
   @override
+  Future<List<ScheduleEntry>> getSchedulesForFacilityBetween({
+    required String facilityId,
+    required String startDate,
+    required String endDate,
+  }) async {
+    final database = await _db.database;
+    final rows = await database.rawQuery('''
+      SELECT s.*, f.name AS facility_name, f.latitude, f.longitude
+      FROM schedules s
+      INNER JOIN facilities f ON s.facility_id = f.id
+      WHERE s.facility_id = ?
+        AND s.date >= ?
+        AND s.date <= ?
+      ORDER BY s.date ASC, s.start_time ASC
+    ''', [facilityId, startDate, endDate]);
+
+    return rows.map((row) => _fromMap(row, null, null)).toList();
+  }
+
+  @override
+  Future<List<CategoryAuditRow>> getCategoryAuditReport() async {
+    final database = await _db.database;
+    final rows = await database.rawQuery('''
+      SELECT
+        COALESCE(s.raw_category, s.category) AS raw_cat,
+        s.category AS norm_cat,
+        s.facility_id,
+        f.name AS facility_name,
+        COUNT(*) AS occurrences
+      FROM schedules s
+      INNER JOIN facilities f ON s.facility_id = f.id
+      GROUP BY raw_cat, norm_cat, s.facility_id, f.name
+      ORDER BY occurrences DESC, raw_cat ASC
+    ''');
+
+    return rows
+        .map(
+          (row) => CategoryAuditRow(
+            rawCategory: row['raw_cat'] as String,
+            normalizedCategory: row['norm_cat'] as String,
+            facilityId: row['facility_id'] as String,
+            facilityName: row['facility_name'] as String,
+            occurrences: row['occurrences'] as int,
+          ),
+        )
+        .toList();
+  }
+
+  @override
   Future<List<ScheduleEntry>> getActiveNow() async {
     final date = OttawaTime.todayDate();
     final time = OttawaTime.nowTime();
@@ -114,9 +157,8 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       FROM schedules s
       INNER JOIN facilities f ON s.facility_id = f.id
       WHERE s.date = ? AND s.start_time <= ? AND s.end_time > ?
-        AND s.category IN (${_dbCategories.map((_) => '?').join(',')})
       ORDER BY s.start_time ASC
-    ''', [date, time, time, ..._dbCategories]);
+    ''', [date, time, time]);
 
     return rows.map((row) => _fromMap(row, null, null)).toList();
   }
@@ -124,7 +166,7 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
   @override
   Future<List<ScheduleEntry>> getTimelineForDate(String date, {String? facilityId}) async {
     final database = await _db.database;
-    final args = <Object?>[date, ..._dbCategories];
+    final args = <Object?>[date];
     var facilityClause = '';
     if (facilityId != null) {
       facilityClause = 'AND s.facility_id = ?';
@@ -135,7 +177,6 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       FROM schedules s
       INNER JOIN facilities f ON s.facility_id = f.id
       WHERE s.date = ?
-        AND s.category IN (${_dbCategories.map((_) => '?').join(',')})
         $facilityClause
       ORDER BY s.start_time ASC, f.name ASC
     ''', args);
@@ -158,9 +199,8 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       WHERE s.date = ?
         AND s.start_time <= ?
         AND s.end_time > ?
-        AND s.category IN (${_dbCategories.map((_) => '?').join(',')})
       ORDER BY s.start_time ASC
-    ''', [date, time, time, ..._dbCategories]);
+    ''', [date, time, time]);
 
     var entries = rows.map((row) => _fromMap(row, userLat, userLng)).toList();
     if (userLat != null && userLng != null) {
@@ -180,6 +220,7 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
     double? userLng,
     int limit = 50,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? maxDistanceKm,
   }) async {
@@ -189,6 +230,7 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       sameDayOnly: true,
       limit: limit,
       categories: categories,
+      rawCategories: rawCategories,
       facilityId: facilityId,
       userLat: userLat,
       userLng: userLng,
@@ -203,6 +245,7 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
     String? toDate,
     int limit = 200,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? userLat,
     double? userLng,
@@ -214,6 +257,7 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       toDate: toDate,
       limit: limit,
       categories: categories,
+      rawCategories: rawCategories,
       facilityId: facilityId,
       userLat: userLat,
       userLng: userLng,
@@ -227,6 +271,7 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
     required String time,
     int limit = 50,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? userLat,
     double? userLng,
@@ -237,6 +282,7 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       fromTime: time,
       limit: limit,
       categories: categories,
+      rawCategories: rawCategories,
       facilityId: facilityId,
       userLat: userLat,
       userLng: userLng,
@@ -250,6 +296,7 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
     String? toDate,
     int limit = 200,
     List<String>? categories,
+    List<String>? rawCategories,
     String? facilityId,
     double? userLat,
     double? userLng,
@@ -262,22 +309,21 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
         's.date = ? AND s.start_time >= ?'
       else
         '(s.date > ? OR (s.date = ? AND s.start_time >= ?))',
-      's.category IN (${_dbCategories.map((_) => '?').join(',')})',
     ];
     final args = <Object?>[
       if (sameDayOnly) ...[fromDate, fromTime] else ...[fromDate, fromDate, fromTime],
-      ..._dbCategories,
     ];
 
     if (toDate != null) {
       where.add('s.date <= ?');
       args.add(toDate);
     }
-    if (categories != null && categories.isNotEmpty) {
-      final expanded = _expandCategoryFilter(categories);
-      where.add('s.category IN (${List.filled(expanded.length, '?').join(',')})');
-      args.addAll(expanded);
-    }
+    _appendCategoryFilters(
+      where: where,
+      args: args,
+      categories: categories,
+      rawCategories: rawCategories,
+    );
     if (facilityId != null) {
       where.add('s.facility_id = ?');
       args.add(facilityId);
@@ -311,14 +357,13 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
     final where = <String>[
       's.date >= ?',
       's.date <= ?',
-      's.category IN (${_dbCategories.map((_) => '?').join(',')})',
     ];
-    final args = <Object?>[startDate, endDate, ..._dbCategories];
-    if (categories != null && categories.isNotEmpty) {
-      final expanded = _expandCategoryFilter(categories);
-      where.add('s.category IN (${List.filled(expanded.length, '?').join(',')})');
-      args.addAll(expanded);
-    }
+    final args = <Object?>[startDate, endDate];
+    _appendCategoryFilters(
+      where: where,
+      args: args,
+      categories: categories,
+    );
 
     final rows = await database.rawQuery('''
       SELECT DISTINCT s.date AS d
@@ -334,11 +379,8 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
   Future<int> countFutureSessions(String fromDate) async {
     final database = await _db.database;
     final result = await database.rawQuery(
-      '''
-      SELECT COUNT(*) AS c FROM schedules
-      WHERE date > ? AND category IN (${_dbCategories.map((_) => '?').join(',')})
-      ''',
-      [fromDate, ..._dbCategories],
+      'SELECT COUNT(*) AS c FROM schedules WHERE date > ?',
+      [fromDate],
     );
     return Sqflite.firstIntValue(result) ?? 0;
   }
@@ -350,12 +392,8 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
   ) async {
     final database = await _db.database;
     final result = await database.rawQuery(
-      '''
-      SELECT COUNT(*) AS c FROM schedules
-      WHERE facility_id = ? AND date > ?
-        AND category IN (${_dbCategories.map((_) => '?').join(',')})
-      ''',
-      [facilityId, fromDate, ..._dbCategories],
+      'SELECT COUNT(*) AS c FROM schedules WHERE facility_id = ? AND date > ?',
+      [facilityId, fromDate],
     );
     return Sqflite.firstIntValue(result) ?? 0;
   }
@@ -370,6 +408,56 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       ORDER BY raw ASC
     ''');
     return rows.map((r) => r['raw'] as String).toList();
+  }
+
+  @override
+  Future<List<CategoryInventoryRow>> getCategoryInventory() async {
+    final database = await _db.database;
+    final rows = await database.rawQuery('''
+      SELECT
+        COALESCE(NULLIF(TRIM(s.raw_category), ''), s.category) AS raw_cat,
+        s.category AS norm_cat,
+        COUNT(*) AS session_count,
+        COUNT(DISTINCT s.facility_id) AS facility_count
+      FROM schedules s
+      GROUP BY raw_cat, norm_cat
+      ORDER BY session_count DESC, raw_cat ASC
+    ''');
+
+    return rows
+        .map(
+          (row) => CategoryInventoryRow(
+            rawCategory: row['raw_cat'] as String,
+            normalizedCategory: SwimCategories.normalizeStored(
+              row['norm_cat'] as String,
+            ),
+            facilityCount: row['facility_count'] as int,
+            sessionCount: row['session_count'] as int,
+          ),
+        )
+        .toList();
+  }
+
+  static void _appendCategoryFilters({
+    required List<String> where,
+    required List<Object?> args,
+    List<String>? categories,
+    List<String>? rawCategories,
+  }) {
+    final parts = <String>[];
+    if (categories != null && categories.isNotEmpty) {
+      final expanded = _expandCategoryFilter(categories);
+      parts.add('s.category IN (${List.filled(expanded.length, '?').join(',')})');
+      args.addAll(expanded);
+    }
+    if (rawCategories != null && rawCategories.isNotEmpty) {
+      parts.add(
+        'COALESCE(NULLIF(TRIM(s.raw_category), \'\'), s.category) IN (${List.filled(rawCategories.length, '?').join(',')})',
+      );
+      args.addAll(rawCategories);
+    }
+    if (parts.isEmpty) return;
+    where.add(parts.length == 1 ? parts.single : '(${parts.join(' OR ')})');
   }
 
   static List<String> _expandCategoryFilter(List<String> categories) {
@@ -496,10 +584,9 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       SELECT s.date AS d, COUNT(*) AS c
       FROM schedules s
       WHERE s.date >= ? AND s.date <= ?
-        AND s.category IN (${_dbCategories.map((_) => '?').join(',')})
       GROUP BY s.date
       ORDER BY d ASC
-    ''', [startDate, endDate, ..._dbCategories]);
+    ''', [startDate, endDate]);
 
     return {for (final r in rows) r['d'] as String: r['c'] as int};
   }
@@ -514,10 +601,9 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
       SELECT s.date AS d, s.category AS cat, COUNT(*) AS c
       FROM schedules s
       WHERE s.date >= ? AND s.date <= ?
-        AND s.category IN (${_dbCategories.map((_) => '?').join(',')})
       GROUP BY s.date, s.category
       ORDER BY s.date ASC, c DESC
-    ''', [startDate, endDate, ..._dbCategories]);
+    ''', [startDate, endDate]);
 
     final map = <String, String>{};
     for (final r in rows) {

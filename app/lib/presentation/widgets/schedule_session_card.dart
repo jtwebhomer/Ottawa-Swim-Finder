@@ -45,11 +45,18 @@ class ScheduleSessionCard extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(SwimSessionPresenter.sessionTitle(entry)),
             Text(
-              SwimCategories.labelFor(entry.category),
-              style: theme.textTheme.bodySmall,
+              SwimSessionPresenter.sessionTitle(entry),
+              style: theme.textTheme.titleMedium,
             ),
+            if (entry.rawCategory != null &&
+                entry.rawCategory!.trim().isNotEmpty &&
+                entry.rawCategory!.trim().toLowerCase() !=
+                    SwimCategories.labelFor(entry.category).toLowerCase())
+              Text(
+                'Type: ${SwimCategories.labelFor(entry.category)}',
+                style: theme.textTheme.bodySmall,
+              ),
             if (showFacility && entry.facilityName != null)
               Text(entry.facilityName!),
             if (entry.distanceKm != null)

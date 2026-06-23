@@ -8,8 +8,8 @@ class SyncThresholds {
   /// Reject full sync if projected total falls below this ratio of baseline.
   static const double minGlobalSessionRatio = 0.35;
 
-  /// Reject per-facility write if new count falls below this ratio.
-  static const double minFacilitySessionRatio = 0.25;
+  /// Reject per-facility write if new count falls below 60% of baseline (40% drop).
+  static const double minFacilitySessionRatio = 0.60;
 
   /// Minimum existing rows before per-facility ratio check applies.
   static const int minFacilityBaselineRows = 15;

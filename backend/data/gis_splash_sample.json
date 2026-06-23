@@ -1,0 +1,65 @@
+[
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "220 Stoneway Drive, Nepean",
+    "lat": 45.28763947144045,
+    "lng": -75.71589085106825
+  },
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "75 Glendale Avenue, Ottawa",
+    "lat": 45.40486180021214,
+    "lng": -75.69930375758767
+  },
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "3525 Cambrian Road, Nepean",
+    "lat": 45.252737411227535,
+    "lng": -75.73862175903388
+  },
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "861 Stanstead Road, Ottawa",
+    "lat": 45.363133336110806,
+    "lng": -75.67206666749327
+  },
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "720 White Alder Avenue, Gloucester",
+    "lat": 45.321763910816564,
+    "lng": -75.60373153277612
+  },
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "272 West Ridge Drive",
+    "lat": 45.25009893017201,
+    "lng": -75.92657738163778
+  },
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "100 Braemar Street, Ottawa",
+    "lat": 45.45076787885918,
+    "lng": -75.65700791373814
+  },
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "165 Meandering Brook Drive, Gloucester",
+    "lat": 45.34282588670276,
+    "lng": -75.62753924947619
+  },
+  {
+    "id": "splash-pad",
+    "name": "Splash Pad",
+    "address": "710 Mikinak Road, Ottawa",
+    "lat": 45.450540313166094,
+    "lng": -75.6323791647162
+  }
+]

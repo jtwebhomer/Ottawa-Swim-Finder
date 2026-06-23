@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Ottawa Swim Schedule Cache",
+  "version": "1.0.2",
+  "description": "Download swim schedule HTML from Ottawa.ca facility pages into the Swim Finder sync cache.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://ottawa.ca/*",
+    "http://127.0.0.1:3000/*",
+    "http://localhost:3000/*",
+    "http://quantumvibe.ca:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://ottawa.ca/en/recreation-and-parks/facilities/place-listing/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

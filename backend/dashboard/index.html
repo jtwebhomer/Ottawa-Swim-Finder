@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ottawa Swim Finder — Sync Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e8eef5;
+      --muted: #8b9cb3;
+      --live: #22c55e;
+      --fixture: #3b82f6;
+      --blocked: #ef4444;
+      --stale: #f59e0b;
+      --none: #6b7280;
+      --seasonal: #a78bfa;
+      --parse_failed: #f97316;
+      --retry: #eab308;
+      --confirmed: #64748b;
+      --unknown: #475569;
+      --border: #2d3a4f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--card);
+    }
+    h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+    .sub { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+    .actions { display: flex; gap: 0.5rem; align-items: center; }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    button:hover { background: #1d4ed8; }
+    button.secondary { background: var(--border); }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.75rem;
+      padding: 1rem 1.5rem;
+    }
+    .stat {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+    }
+    .stat .n { font-size: 1.5rem; font-weight: 700; }
+    .stat .l { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
+    .banner {
+      margin: 0 1.5rem 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      background: #1e3a5f;
+      border: 1px solid #2563eb;
+      font-size: 0.9rem;
+    }
+    .banner.warn { background: #422006; border-color: var(--stale); }
+    .banner.error { background: #450a0a; border-color: var(--blocked); }
+    .toolbar {
+      padding: 0 1.5rem 1rem;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    input, select {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.45rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+    }
+    table {
+      width: calc(100% - 3rem);
+      margin: 0 1.5rem 2rem;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--bg); }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge.live { background: rgba(34,197,94,0.2); color: var(--live); }
+    .badge.fixture { background: rgba(59,130,246,0.2); color: var(--fixture); }
+    .badge.blocked { background: rgba(239,68,68,0.2); color: var(--blocked); }
+    .badge.stale { background: rgba(245,158,11,0.2); color: var(--stale); }
+    .badge.none { background: rgba(107,114,128,0.2); color: var(--none); }
+    .badge.seasonal { background: rgba(167,139,250,0.2); color: var(--seasonal); }
+    .badge.cached { background: rgba(148,163,184,0.2); color: #94a3b8; }
+    .badge.parse_failed { background: rgba(249,115,22,0.2); color: var(--parse_failed); }
+    .badge.retry_required { background: rgba(234,179,8,0.2); color: var(--retry); }
+    .badge.confirmed_empty { background: rgba(100,116,139,0.2); color: var(--confirmed); }
+    .badge.unknown { background: rgba(71,85,105,0.2); color: var(--unknown); }
+    .mono { font-family: ui-monospace, monospace; font-size: 0.8rem; color: var(--muted); }
+    .btn-debug {
+      background: #7c3aed;
+      color: white;
+      border: none;
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    .btn-debug:hover { background: #6d28d9; }
+    .actions-cell { min-width: 140px; }
+    #loading { padding: 2rem; text-align: center; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Ottawa Swim Finder — Sync Dashboard</h1>
+      <div class="sub" id="subtitle">Loading…</div>
+    </div>
+    <div class="actions">
+      <label class="sub"><input type="checkbox" id="autoRefresh" checked /> Auto-refresh 30s</label>
+      <button type="button" class="secondary" id="btnRefresh">Refresh</button>
+    </div>
+  </header>
+
+  <div id="banner"></div>
+  <div class="stats" id="stats"></div>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search facility…" style="min-width:200px" />
+    <select id="filterStatus">
+      <option value="">All statuses</option>
+      <option value="live">Live verified</option>
+      <option value="fixture">Fixture only</option>
+      <option value="blocked">Blocked</option>
+      <option value="parse_failed">Parse failed</option>
+      <option value="retry_required">Retry required</option>
+      <option value="confirmed_empty">Confirmed empty</option>
+      <option value="stale">Stale live</option>
+      <option value="unknown">Unknown</option>
+      <option value="seasonal">Seasonal</option>
+    </select>
+    <select id="filterType">
+      <option value="">All types</option>
+      <option value="indoor">Indoor</option>
+      <option value="outdoor">Outdoor</option>
+      <option value="wave">Wave</option>
+      <option value="wading">Wading</option>
+      <option value="splash">Splash pad</option>
+    </select>
+  </div>
+
+  <div id="loading">Connecting to local API…</div>
+  <table id="table" hidden>
+    <thead>
+      <tr>
+        <th>Facility</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Sessions</th>
+        <th>Last verified</th>
+        <th>Last updated</th>
+        <th>Notes</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let data = null;
+    let timer = null;
+
+    function fmtTime(ms) {
+      if (!ms) return '—';
+      const d = new Date(ms);
+      const ago = Math.round((Date.now() - ms) / 60000);
+      const agoStr = ago < 60 ? `${ago}m ago` : ago < 1440 ? `${Math.round(ago/60)}h ago` : `${Math.round(ago/1440)}d ago`;
+      return `${d.toLocaleString()} (${agoStr})`;
+    }
+
+    function renderBanner(d) {
+      const el = $('banner');
+      if (d.sync_running) {
+        el.className = 'banner';
+        el.textContent = '⏳ Sync is running right now…';
+        return;
+      }
+      if (!d.last_run) {
+        el.className = 'banner warn';
+        el.textContent = 'No sync has completed yet. Only bundled fixture data may be present.';
+        return;
+      }
+      const lr = d.last_run;
+      const cls = lr.status === 'success' ? 'banner' : lr.status === 'partial' ? 'banner warn' : 'banner error';
+      el.className = cls;
+      el.textContent = `Last sync: ${lr.status.toUpperCase()} — ${lr.updated} updated, ${lr.blocked} blocked, ${lr.failed} failed — ${fmtTime(lr.timestamp)}`;
+    }
+
+    function renderStats(s) {
+      $('stats').innerHTML = [
+        ['Live', s.live_verified, 'live'],
+        ['Fixture', s.fixture, 'fixture'],
+        ['Blocked', s.blocked, 'blocked'],
+        ['Parse fail', s.parse_failed, 'parse_failed'],
+        ['Retry', s.retry_required, 'retry_required'],
+        ['Empty', s.confirmed_empty, 'confirmed_empty'],
+        ['Unknown', s.unknown, 'unknown'],
+        ['Seasonal', s.seasonal, 'seasonal'],
+        ['Debug', s.debug_eligible, 'parse_failed'],
+      ].map(([l, n, c]) => `<div class="stat"><div class="n" style="color:var(--${c})">${n ?? 0}</div><div class="l">${l}</div></div>`).join('');
+    }
+
+    function renderDebugAction(f) {
+      const dbg = f.debug || {};
+      if (dbg.can_debug && dbg.debug_url) {
+        const title = dbg.reason ? `Open Ottawa.ca schedule page (${dbg.reason})` : 'Open facility schedule page';
+        return `<button type="button" class="btn-debug" title="${esc(title)}" onclick="window.open('${esc(dbg.debug_url)}','_blank')">Open Facility Page</button>`;
+      }
+      return '—';
+    }
+
+    function renderTable() {
+      if (!data) return;
+      const q = $('search').value.toLowerCase();
+      const st = $('filterStatus').value;
+      const ty = $('filterType').value;
+      const rows = data.facilities.filter((f) => {
+        if (st && f.sync_status !== st) return false;
+        if (ty && f.type !== ty) return false;
+        if (q && !f.name.toLowerCase().includes(q) && !f.id.includes(q)) return false;
+        return true;
+      });
+      $('tbody').innerHTML = rows.map((f) => `
+        <tr>
+          <td><strong>${esc(f.name)}</strong><br><span class="mono">${esc(f.id)}</span></td>
+          <td>${esc(f.type)}</td>
+          <td><span class="badge ${f.sync_status}">${esc(f.sync_status_label)}</span></td>
+          <td>${f.session_count} <span class="mono">(${f.live_count} live / ${f.fixture_count} fixture)</span></td>
+          <td>${fmtTime(f.last_verified)}</td>
+          <td>${fmtTime(f.last_updated)}</td>
+          <td class="mono">${esc(f.blocked_reason || f.render_status || f.data_source || '')}</td>
+          <td class="actions-cell">${renderDebugAction(f)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function load() {
+      try {
+        const res = await fetch('/dashboard/api/status');
+        if (!res.ok) throw new Error(await res.text());
+        data = await res.json();
+        $('loading').hidden = true;
+        $('table').hidden = false;
+        $('subtitle').textContent = data.last_successful_sync
+          ? `Last successful sync: ${fmtTime(data.last_successful_sync)} · ${data.total_sessions} total sessions`
+          : 'No successful sync recorded yet';
+        renderBanner(data);
+        renderStats(data.summary);
+        renderTable();
+      } catch (e) {
+        $('loading').textContent = 'Cannot reach API. Is the server running on port 3000? ' + e.message;
+      }
+    }
+
+    $('btnRefresh').onclick = load;
+    $('search').oninput = renderTable;
+    $('filterStatus').onchange = renderTable;
+    $('filterType').onchange = renderTable;
+    $('autoRefresh').onchange = (e) => {
+      clearInterval(timer);
+      if (e.target.checked) timer = setInterval(load, 30000);
+    };
+
+    load();
+    timer = setInterval(load, 30000);
+  </script>
+</body>
+</html>
