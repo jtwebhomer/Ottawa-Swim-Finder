@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme/app_theme.dart';
+import 'core/logging/app_logger.dart';
 import 'di/injection.dart';
 import 'presentation/providers/app_state.dart';
 import 'presentation/screens/debug_screen.dart';
@@ -32,7 +33,13 @@ class OttawaSwimFinderApp extends StatelessWidget {
             nearestUseCase: getIt(),
             pinStatusUseCase: getIt(),
             validationService: getIt(),
-          )..initialize(),
+          )..initialize().catchError((Object error, StackTrace stackTrace) {
+            appLogger.e(
+              'App startup failed',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
         ),
       ],
       child: MaterialApp(

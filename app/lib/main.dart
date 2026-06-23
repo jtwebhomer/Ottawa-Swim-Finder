@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'app.dart';
 import 'core/constants/app_constants.dart';
+import 'core/logging/app_logger.dart';
 import 'di/injection.dart';
 import 'data/services/map_tile_cache_service.dart';
 import 'data/services/notification_service.dart';
@@ -19,12 +22,7 @@ void callbackDispatcher() {
   });
 }
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await configureDependencies();
-  await getIt<MapTileCacheService>().initialize();
-  await getIt<NotificationService>().initialize();
-
+Future<void> _initWorkmanager() async {
   await Workmanager().initialize(callbackDispatcher);
   await Workmanager().registerPeriodicTask(
     AppConstants.syncTaskName,
@@ -32,6 +30,52 @@ Future<void> main() async {
     frequency: const Duration(hours: 6),
     constraints: Constraints(networkType: NetworkType.connected),
   );
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (details) {
+    appLogger.e(
+      'Flutter framework error',
+      error: details.exception,
+      stackTrace: details.stack,
+    );
+  };
+
+  await configureDependencies();
+
+  try {
+    await getIt<MapTileCacheService>().initialize();
+  } catch (error, stackTrace) {
+    appLogger.e(
+      'Map tile cache init failed',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  try {
+    await getIt<NotificationService>().initialize();
+  } catch (error, stackTrace) {
+    appLogger.e(
+      'Notification init failed',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 
   runApp(const OttawaSwimFinderApp());
+
+  unawaited(() async {
+    try {
+      await _initWorkmanager();
+    } catch (error, stackTrace) {
+      appLogger.e(
+        'Workmanager init failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }());
 }

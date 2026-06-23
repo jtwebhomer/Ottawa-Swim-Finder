@@ -11,3 +11,12 @@
 
 # Flutter background worker entry point
 -keep class dev.fluttercommunity.workmanager.** { *; }
+
+# ObjectBox (map tile cache backend)
+-keep class io.objectbox.** { *; }
+-keep class net.objectbox.** { *; }
+-keepattributes *Annotation*
+-dontwarn io.objectbox.**
+
+# SQLite / sqflite
+-keep class com.tekartik.sqflite.** { *; }
