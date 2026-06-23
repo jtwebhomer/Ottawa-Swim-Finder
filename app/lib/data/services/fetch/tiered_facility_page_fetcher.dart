@@ -35,18 +35,13 @@ enum TieredFetchOutcome {
   staleCached,
 }
 
-/// HTTP → Browser → Cache snapshot/DB fallback orchestrator.
+/// Fetches Ottawa.ca pages with browser-like headers, retries, and throttling.
 class TieredFacilityPageFetcher {
   TieredFacilityPageFetcher({
     OttawaHttpClient? httpClient,
     BrowserFacilityPageFetcher? browserFetcher,
     HtmlSnapshotCache? snapshotCache,
-  })  : _httpClient = httpClient ??
-            OttawaHttpClient(
-              maxRetries: 1,
-              interRequestDelayMs: 0,
-              baseDelayMs: 0,
-            ),
+  })  : _httpClient = httpClient ?? OttawaHttpClient(),
         _browserFetcher =
             browserFetcher ?? createBrowserFacilityPageFetcher(),
         _snapshotCache = snapshotCache ?? HtmlSnapshotCache();
@@ -59,6 +54,7 @@ class TieredFacilityPageFetcher {
     required String url,
     required String facilityId,
     required int existingCachedSessions,
+    bool escalateToBrowser = false,
   }) async {
     final attempts = <FetchTierAttempt>[];
 
@@ -93,8 +89,17 @@ class TieredFacilityPageFetcher {
         detail: blockedCheck.signaturesMatched.join(','),
       ));
       appLogger.i(
-        '[fetch] Tier 1 blocked for $facilityId — escalating to browser',
+        '[fetch] Tier 1 blocked for $facilityId — ${escalateToBrowser ? 'escalating to browser' : 'using cache/backoff'}',
       );
+      if (!escalateToBrowser) {
+        return _finishWithCacheFallback(
+          attempts: attempts,
+          facilityId: facilityId,
+          existingCachedSessions: existingCachedSessions,
+          httpStatus: 200,
+          errorMessage: 'HTTP blocked — skipped browser escalation',
+        );
+      }
     } on ScrapeHttpException catch (e) {
       attempts.add(FetchTierAttempt(
         tier: FacilityFetchTier.http,
@@ -112,6 +117,15 @@ class TieredFacilityPageFetcher {
           preferHttpError: true,
         );
       }
+      if (!escalateToBrowser) {
+        return _finishWithCacheFallback(
+          attempts: attempts,
+          facilityId: facilityId,
+          existingCachedSessions: existingCachedSessions,
+          httpStatus: e.statusCode,
+          errorMessage: e.toString(),
+        );
+      }
       appLogger.i(
         '[fetch] Tier 1 HTTP ${e.statusCode} for $facilityId — escalating to browser',
       );
@@ -123,8 +137,8 @@ class TieredFacilityPageFetcher {
       ));
     }
 
-    // --- Tier 2: JS-enabled browser ---
-    if (_browserFetcher.isAvailable) {
+    // --- Tier 2: JS-enabled browser (opt-in only; routine sync stays HTTP-only) ---
+    if (escalateToBrowser && _browserFetcher.isAvailable) {
       try {
         final browserPage = await _browserFetcher.fetch(url);
         if (browserPage != null &&
@@ -164,7 +178,7 @@ class TieredFacilityPageFetcher {
         ));
         appLogger.w('Tier 2 browser fetch failed', error: e, stackTrace: st);
       }
-    } else {
+    } else if (escalateToBrowser) {
       attempts.add(const FetchTierAttempt(
         tier: FacilityFetchTier.browser,
         outcome: 'unavailable',

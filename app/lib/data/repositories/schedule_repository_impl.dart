@@ -408,6 +408,42 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
   }
 
   @override
+  Future<void> replaceSchedulesForFacility(
+    String facilityId,
+    List<ScheduleEntry> entries,
+  ) async {
+    final database = await _db.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await database.transaction((txn) async {
+      await txn.delete(
+        'schedules',
+        where: 'facility_id = ?',
+        whereArgs: [facilityId],
+      );
+
+      final batch = txn.batch();
+      for (final entry in entries) {
+        batch.insert('schedules', {
+          'facility_id': facilityId,
+          'category': entry.category,
+          'raw_category': entry.rawCategory,
+          'schedule_type': entry.scheduleType,
+          'day_of_week': entry.dayOfWeek,
+          'date': entry.date,
+          'start_time': entry.startTime,
+          'end_time': entry.endTime,
+          'notes': entry.notes,
+          'date_range_start': entry.dateRangeStart,
+          'date_range_end': entry.dateRangeEnd,
+          'last_updated': now,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  @override
   Future<void> deleteSchedulesForFacility(String facilityId) async {
     final database = await _db.database;
     await database.delete('schedules', where: 'facility_id = ?', whereArgs: [facilityId]);
@@ -419,6 +455,16 @@ class ScheduleRepositoryImpl implements ScheduleRepository {
     final result = await database.rawQuery(
       'SELECT COUNT(*) AS c FROM schedules WHERE facility_id = ?',
       [facilityId],
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  @override
+  Future<int> countSchedulesForFacilityOnDate(String facilityId, String date) async {
+    final database = await _db.database;
+    final result = await database.rawQuery(
+      'SELECT COUNT(*) AS c FROM schedules WHERE facility_id = ? AND date = ?',
+      [facilityId, date],
     );
     return Sqflite.firstIntValue(result) ?? 0;
   }

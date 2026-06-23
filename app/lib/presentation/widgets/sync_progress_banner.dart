@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../domain/entities/sync_progress.dart';
 import '../providers/app_state.dart';
 
-/// Live progress during an active Ottawa.ca sync.
+/// Live progress during background Ottawa.ca sync.
 class SyncProgressBanner extends StatelessWidget {
   const SyncProgressBanner({super.key, required this.state});
 
@@ -10,16 +11,21 @@ class SyncProgressBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = state.syncProgress;
-    if (!state.isSyncing || progress == null) {
+    if (!state.isSyncing || state.syncProgress == null) {
       return const SizedBox.shrink();
     }
 
+    final progress = state.syncProgress!;
     final theme = Theme.of(context);
     final total = progress.totalFacilities;
     final updated = progress.updated;
     final blocked = progress.blocked;
     final pending = progress.pending;
+    final phaseLabel = switch (progress.phase) {
+      SyncPhase.fetching => 'Fetching schedules',
+      SyncPhase.validating => 'Validating data',
+      SyncPhase.committing => 'Saving updates',
+    };
 
     return Card(
       color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
@@ -38,20 +44,24 @@ class SyncProgressBanner extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Updating swim schedules…',
+                    state.backgroundSyncActive
+                        ? 'Updating schedules in background…'
+                        : 'Updating swim schedules…',
                     style: theme.textTheme.titleSmall,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text('$updated of $total facilities updated'),
+            const SizedBox(height: 8),
+            Text(phaseLabel, style: theme.textTheme.bodySmall),
+            const SizedBox(height: 4),
+            Text('$updated of $total facilities refreshed this run'),
             if (blocked > 0)
               Text(
-                '$blocked could not be reached (will retry)',
-                style: TextStyle(color: theme.colorScheme.error),
+                'Some pools will refresh on the next attempt',
+                style: TextStyle(color: theme.colorScheme.tertiary),
               ),
-            if (pending > 0) Text('$pending remaining'),
+            if (pending > 0) Text('$pending remaining in this batch'),
             if (progress.currentFacilityName != null) ...[
               const SizedBox(height: 4),
               Text(

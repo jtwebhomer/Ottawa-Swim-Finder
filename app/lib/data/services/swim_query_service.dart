@@ -1,12 +1,19 @@
 import '../../core/utils/ottawa_time.dart';
+import '../../domain/entities/facility.dart';
 import '../../domain/entities/schedule_entry.dart';
+import '../../domain/entities/sync_location_context.dart';
 import '../../domain/repositories/repositories.dart';
+import 'facility_ranking_service.dart';
 
 /// Shared swim queries — Home, Map, and Facility sheets use identical logic.
 class SwimQueryService {
-  SwimQueryService(this._scheduleRepo);
+  SwimQueryService(
+    this._scheduleRepo,
+    this._rankingService,
+  );
 
   final ScheduleRepository _scheduleRepo;
+  final FacilityRankingService _rankingService;
 
   Future<FacilitySwimSummary> facilitySummary(String facilityId) async {
     final today = OttawaTime.todayDate();
@@ -52,6 +59,7 @@ class SwimQueryService {
   Future<HomeSwimSections> homeSections({
     double? userLat,
     double? userLng,
+    List<Facility>? facilities,
   }) async {
     final today = OttawaTime.todayDate();
     final tomorrow = OttawaTime.formatDate(
@@ -72,7 +80,7 @@ class SwimQueryService {
     final startingSoon = upcoming.where((s) {
       if (s.date != today) return false;
       final startM = _toMinutes(s.startTime);
-      return startM > nowMinutes && startM <= nowMinutes + 60;
+      return startM > nowMinutes && startM <= nowMinutes + 180;
     }).toList();
 
     final tonight = upcoming.where(
@@ -81,11 +89,23 @@ class SwimQueryService {
 
     final tomorrowSwims = upcoming.where((s) => s.date == tomorrow).toList();
 
-    return HomeSwimSections(
+    final sections = HomeSwimSections(
       swimmingNow: active,
       startingSoon: startingSoon,
       tonight: tonight,
       tomorrow: tomorrowSwims,
+    );
+
+    if (facilities == null || facilities.isEmpty) return sections;
+
+    final anchor = userLat != null && userLng != null
+        ? SyncLocationContext.fromDevice(latitude: userLat, longitude: userLng)
+        : SyncLocationContext.fallback();
+
+    return _rankingService.sortHomeSections(
+      sections,
+      facilities: facilities,
+      anchor: anchor,
     );
   }
 
@@ -126,12 +146,14 @@ class HomeSwimSections {
     required this.startingSoon,
     required this.tonight,
     required this.tomorrow,
+    this.habitHints = const {},
   });
 
   final List<ScheduleEntry> swimmingNow;
   final List<ScheduleEntry> startingSoon;
   final List<ScheduleEntry> tonight;
   final List<ScheduleEntry> tomorrow;
+  final Map<String, String> habitHints;
 
   bool get isEmpty =>
       swimmingNow.isEmpty &&

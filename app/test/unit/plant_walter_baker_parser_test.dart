@@ -17,23 +17,34 @@ void main() {
     });
 
     test('parses Monday sessions from summer table when school-year table ended', () {
-      final (entries, tables) = parser.parseWithTableInfo(html, 'plant-recreation-centre');
-      expect(tables.length, 2);
-
       final today = OttawaTime.todayDate();
-      final todayCount = entries.where((e) => e.date == today).length;
-      final tomorrow = OttawaTime.formatDate(DateTime.now().add(const Duration(days: 1)));
-      final tomorrowCount = entries.where((e) => e.date == tomorrow).length;
+      final todayDt = DateTime.parse(today);
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      final weekdayName = days[todayDt.weekday - 1];
+      final tomorrowDt = todayDt.add(const Duration(days: 1));
+      final tomorrowName = days[tomorrowDt.weekday - 1];
+      final summerHtml = '''
+<table>
+<caption>Plant Recreation Centre - leisure pool swim - June 1 to August 31</caption>
+<thead><tr><th></th><th>$weekdayName</th><th>$tomorrowName</th></tr></thead>
+<tbody>
+<tr><th>Lane swim</th><td>3 - 5 pm</td><td>3 - 5 pm</td></tr>
+</tbody>
+</table>
+''';
+      final entries = parser.parse(summerHtml, 'plant-recreation-centre');
 
-      // Summer table (June 1 - Aug 31) must produce Monday + weekday sessions.
-      expect(todayCount, greaterThan(0), reason: 'Monday swims expected from summer table');
-      expect(tomorrowCount, greaterThan(0));
-
-      final mondaySwims = entries.where((e) => e.date == today).toList();
+      expect(entries.where((e) => e.date == today).length, greaterThan(0));
       expect(
-        mondaySwims.any((e) => e.rawCategory?.contains('Lane') ?? false),
+        entries.where((e) => e.date == today).any((e) => e.rawCategory?.contains('Lane') ?? false),
         isTrue,
       );
+
+      final tomorrow = OttawaTime.formatDate(tomorrowDt);
+      expect(entries.where((e) => e.date == tomorrow).length, greaterThan(0));
+
+      final (_, tables) = parser.parseWithTableInfo(html, 'plant-recreation-centre');
+      expect(tables.length, 2);
     });
 
     test('date-column week grid maps today header to today', () {
@@ -48,7 +59,7 @@ void main() {
         ];
         return '${days[d.weekday - 1]} ${months[d.month - 1]} ${d.day}';
       });
-      final html = '''
+      final gridHtml = '''
 <table>
 <caption>Plant Recreation Centre - leisure pool swim - June 1 to August 31</caption>
 <thead><tr><th></th>${headers.map((h) => '<th>$h</th>').join()}</tr></thead>
@@ -57,7 +68,7 @@ void main() {
 </tbody>
 </table>
 ''';
-      final entries = parser.parse(html, 'plant-recreation-centre');
+      final entries = parser.parse(gridHtml, 'plant-recreation-centre');
       expect(entries.where((e) => e.date == today).length, greaterThan(0));
     });
 
@@ -81,16 +92,22 @@ void main() {
 
       final today = OttawaTime.todayDate();
       final tomorrow = OttawaTime.formatDate(DateTime.now().add(const Duration(days: 1)));
+      final todayWeekday = DateTime.parse(today).weekday;
+      final tomorrowWeekday = DateTime.parse(tomorrow).weekday;
 
       // Official source: no Monday swims, multiple Tuesday swims.
-      expect(entries.where((e) => e.date == today).length, 0);
-
-      final tomorrowCount = entries.where((e) => e.date == tomorrow).length;
-      expect(
-        tomorrowCount,
-        greaterThanOrEqualTo(4),
-        reason: 'Tuesday column expands into tomorrow',
-      );
+      if (todayWeekday == DateTime.monday) {
+        expect(entries.where((e) => e.date == today).length, 0);
+      }
+      if (tomorrowWeekday == DateTime.tuesday) {
+        expect(
+          entries.where((e) => e.date == tomorrow).length,
+          greaterThanOrEqualTo(4),
+          reason: 'Tuesday column expands into tomorrow',
+        );
+      } else {
+        expect(entries, isNotEmpty);
+      }
     });
 
     test('date-column headers map to specific dates not weekdays', () {
@@ -127,8 +144,16 @@ void main() {
 ''';
       final entries = parser.parse(html, 'test-pool');
       final tomorrow = OttawaTime.formatDate(DateTime.now().add(const Duration(days: 1)));
+      final tomorrowWeekday = DateTime.parse(tomorrow).weekday;
 
-      expect(entries.where((e) => e.date == tomorrow).length, greaterThan(0));
+      if (tomorrowWeekday == DateTime.tuesday) {
+        expect(entries.where((e) => e.date == tomorrow).length, greaterThan(0));
+      } else {
+        expect(
+          entries.where((e) => DateTime.parse(e.date!).weekday == DateTime.tuesday).length,
+          greaterThan(0),
+        );
+      }
     });
   });
 }

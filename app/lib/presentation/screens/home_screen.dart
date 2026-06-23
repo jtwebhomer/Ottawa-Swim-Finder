@@ -1,18 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/utils/ottawa_time.dart';
+import '../../data/services/habit_detection_service.dart';
+import '../../data/services/swim_query_service.dart';
 import '../../domain/entities/schedule_entry.dart';
 import '../providers/app_state.dart';
-import '../widgets/calendar_export_sheet.dart';
-import '../widgets/data_freshness_card.dart';
-import '../widgets/schedule_session_card.dart';
-import '../widgets/sync_progress_banner.dart';
-import '../widgets/swim_filter_chips.dart';
+import '../widgets/home_empty_state.dart';
+import '../widgets/home_swim_card.dart';
 import '../widgets/swim_session_presenter.dart';
+import '../widgets/sync_status_indicator.dart';
 import 'facilities_screen.dart';
-import 'facility_screen.dart';
-import 'tonight_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,241 +19,174 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  QuickFilter? _quickFilter;
-  final Set<String> _typeFilters = {};
-
-  List<ScheduleEntry> _filterSwims(List<ScheduleEntry> source) {
-    var swims = SwimSessionPresenter.sorted(source);
-    final today = OttawaTime.todayDate();
-    final now = OttawaTime.nowTime();
-
-    if (_quickFilter != null) {
-      swims = swims.where((s) {
-        switch (_quickFilter!) {
-          case QuickFilter.swimmingNow:
-            return s.date == today &&
-                SwimSessionPresenter.statusFor(s).status ==
-                    SwimSessionStatus.active;
-          case QuickFilter.withinOneHour:
-            if (s.date != today) return false;
-            final startM = _minutes(s.startTime);
-            final nowM = _minutes(now);
-            return startM >= nowM && startM <= nowM + 60;
-          case QuickFilter.tonight:
-            return s.date == today && s.startTime.compareTo('17:00') >= 0;
-          case QuickFilter.tomorrow:
-            final tomorrow = OttawaTime.formatDate(
-              DateTime.now().add(const Duration(days: 1)),
-            );
-            return s.date == tomorrow;
-          case QuickFilter.thisWeekend:
-            if (s.date == null) return false;
-            final wd = DateTime.parse(s.date!).weekday;
-            return wd == DateTime.saturday || wd == DateTime.sunday;
-        }
-      }).toList();
-    }
-
-    if (_typeFilters.isNotEmpty) {
-      swims = swims.where((s) => _typeFilters.contains(s.category)).toList();
-    }
-    return swims;
-  }
-
-  int _minutes(String time) {
-    final p = time.split(':');
-    return int.parse(p[0]) * 60 + int.parse(p[1]);
-  }
+  bool _tomorrowExpanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final sections = state.homeSections;
-    final filtering = _quickFilter != null || _typeFilters.isNotEmpty;
+    return Selector<AppState, HomeSwimSections>(
+      selector: (_, state) => state.homeSections,
+      builder: (context, sections, _) {
+        final hints = sections.habitHints;
+        final allEmpty = sections.isEmpty;
+        final state = context.read<AppState>();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Upcoming Swims'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.apartment),
-            tooltip: 'Browse facilities',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const FacilitiesScreen()),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
-            onPressed: state.isSyncing ? null : state.refreshAll,
-          ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: state.refreshAll,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            DataFreshnessCard(state: state),
-            SyncProgressBanner(state: state),
-            const SizedBox(height: 12),
-            if (sections.tonight.isNotEmpty)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.nightlight),
-                  title: const Text('Tonight'),
-                  subtitle: Text(
-                    '${sections.tonight.length} swim${sections.tonight.length == 1 ? '' : 's'} after 5 PM',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const TonightScreen()),
-                  ),
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Swims'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.apartment_outlined),
+                tooltip: 'Browse pools',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const FacilitiesScreen()),
                 ),
               ),
-            const SizedBox(height: 12),
-            SwimQuickFilterChips(
-              selected: _quickFilter,
-              onSelected: (f) => setState(
-                () => _quickFilter = f == _quickFilter ? null : f,
-              ),
-            ),
-            const SizedBox(height: 8),
-            SwimTypeFilterChips(
-              selected: _typeFilters,
-              onChanged: (next) => setState(() {
-                _typeFilters
-                  ..clear()
-                  ..addAll(next);
-              }),
-            ),
-            const SizedBox(height: 16),
-            if (state.isLoading)
-              const LinearProgressIndicator()
-            else if (!filtering)
-              Text(
-                '${sections.swimmingNow.length} swimming now',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            const SizedBox(height: 8),
-            if (filtering)
-              ..._buildFilteredList(
-                context,
-                state,
-                _filterSwims(state.homeUpcomingSwims),
-              )
-            else ...[
-              _section(context, state, 'Swimming Now', sections.swimmingNow),
-              _section(context, state, 'Starting Soon', sections.startingSoon),
-              _section(context, state, 'Tonight', sections.tonight),
-              _section(context, state, 'Tomorrow', sections.tomorrow),
-              if (sections.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 32),
-                  child: Center(
-                    child: Text(
-                      'No upcoming swims found.\nTry Manual Sync in Settings.',
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
+              const SyncStatusIndicator(),
             ],
-          ],
-        ),
-      ),
+          ),
+          body: RefreshIndicator(
+            onRefresh: () => state.manualSync(),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              children: [
+                if (allEmpty)
+                  const HomeAllEmptyState()
+                else ...[
+                  _section(
+                    context,
+                    title: 'Swimming Now',
+                    swims: sections.swimmingNow,
+                    habitHints: hints,
+                    emptyTitle: 'No swims happening right now',
+                    emptySubtitle: 'Check Starting Soon or Tonight below.',
+                    highlight: true,
+                  ),
+                  _section(
+                    context,
+                    title: 'Starting Soon',
+                    swims: sections.startingSoon,
+                    habitHints: hints,
+                    emptyTitle: 'Nothing starting in the next few hours',
+                    emptySubtitle: 'Tonight and Tomorrow may still have options.',
+                  ),
+                  _section(
+                    context,
+                    title: 'Tonight',
+                    swims: sections.tonight,
+                    habitHints: hints,
+                    emptyTitle: 'No evening swims scheduled',
+                    emptySubtitle: 'Try Tomorrow for the next available times.',
+                  ),
+                  _tomorrowSection(sections.tomorrow, hints),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
-  List<Widget> _buildFilteredList(
-    BuildContext context,
-    AppState state,
-    List<ScheduleEntry> swims,
-  ) {
-    if (swims.isEmpty) {
-      return [
-        const Padding(
-          padding: EdgeInsets.only(top: 32),
-          child: Center(
-            child: Text(
-              'No upcoming swims match your filters.',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      ];
-    }
-    return swims.map((swim) => _swimCard(context, state, swim)).toList();
-  }
-
   Widget _section(
-    BuildContext context,
-    AppState state,
-    String title,
-    List<ScheduleEntry> swims,
-  ) {
-    if (swims.isEmpty) return const SizedBox.shrink();
-    final filtered = _filterSwims(swims);
-    if (filtered.isEmpty) return const SizedBox.shrink();
-
+    BuildContext context, {
+    required String title,
+    required List<ScheduleEntry> swims,
+    required Map<String, String> habitHints,
+    required String emptyTitle,
+    String? emptySubtitle,
+    bool highlight = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 4),
-          child: Row(
-            children: [
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              if (title == 'Tonight') ...[
-                const Spacer(),
-                TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const TonightScreen()),
-                  ),
-                  child: const Text('View all'),
+          padding: const EdgeInsets.only(top: 16, bottom: 8),
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
                 ),
-              ],
-            ],
           ),
         ),
-        ...filtered.take(8).map((swim) => _swimCard(context, state, swim)),
-        if (filtered.length > 8)
-          TextButton(
-            onPressed: () => setState(() {
-              _quickFilter = switch (title) {
-                'Swimming Now' => QuickFilter.swimmingNow,
-                'Starting Soon' => QuickFilter.withinOneHour,
-                'Tonight' => QuickFilter.tonight,
-                'Tomorrow' => QuickFilter.tomorrow,
-                _ => _quickFilter,
-              };
-            }),
-            child: Text('Show all ${filtered.length}'),
-          ),
-        const SizedBox(height: 8),
+        if (swims.isEmpty)
+          HomeEmptyState(title: emptyTitle, subtitle: emptySubtitle)
+        else
+          ...swims.take(6).map(
+                (swim) => HomeSwimCard(
+                  entry: swim,
+                  habitHint: habitHints[HabitDetectionService.entryKey(swim)],
+                  highlight: highlight &&
+                      SwimSessionPresenter.statusFor(swim).status ==
+                          SwimSessionStatus.active,
+                ),
+              ),
       ],
     );
   }
 
-  Widget _swimCard(BuildContext context, AppState state, ScheduleEntry swim) =>
-      ScheduleSessionCard(
-        entry: swim,
-        showFacility: true,
-        isStale: state.isFacilityStale(swim.facilityId),
-        highlight: titleIsActive(swim),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => FacilityScreen(facilityId: swim.facilityId),
+  Widget _tomorrowSection(
+    List<ScheduleEntry> swims,
+    Map<String, String> habitHints,
+  ) {
+    final theme = Theme.of(context);
+    final count = swims.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Material(
+          color: theme.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => setState(() => _tomorrowExpanded = !_tomorrowExpanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Tomorrow',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          count == 0
+                              ? 'No swims scheduled yet'
+                              : '$count swim${count == 1 ? '' : 's'} scheduled',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(_tomorrowExpanded ? Icons.expand_less : Icons.expand_more),
+                ],
+              ),
+            ),
           ),
         ),
-        onExport: swim.date != null
-            ? () => showCalendarExportSheet(context, entry: swim)
-            : null,
-      );
-
-  bool titleIsActive(ScheduleEntry swim) =>
-      SwimSessionPresenter.statusFor(swim).status == SwimSessionStatus.active;
+        if (_tomorrowExpanded) ...[
+          if (count == 0)
+            const HomeEmptyState(
+              title: 'Nothing on the calendar for tomorrow yet',
+              subtitle: 'Schedules update automatically in the background.',
+              icon: Icons.calendar_today_outlined,
+            )
+          else
+            ...swims.take(8).map(
+                  (swim) => HomeSwimCard(
+                    entry: swim,
+                    habitHint: habitHints[HabitDetectionService.entryKey(swim)],
+                  ),
+                ),
+        ],
+      ],
+    );
+  }
 }

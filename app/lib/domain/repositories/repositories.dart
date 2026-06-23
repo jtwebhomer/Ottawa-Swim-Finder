@@ -1,3 +1,5 @@
+import '../entities/habit_event.dart';
+import '../entities/facility_interaction.dart';
 import '../entities/facility_type.dart';
 import '../entities/facility.dart';
 import '../entities/saved_swim.dart';
@@ -105,7 +107,14 @@ abstract class ScheduleRepository {
   });
   Future<void> upsertSchedules(String facilityId, List<ScheduleEntry> entries);
   Future<void> deleteSchedulesForFacility(String facilityId);
+
+  /// Atomically replaces all schedules for a facility (delete + insert in one transaction).
+  Future<void> replaceSchedulesForFacility(
+    String facilityId,
+    List<ScheduleEntry> entries,
+  );
   Future<int> countSchedulesForFacility(String facilityId);
+  Future<int> countSchedulesForFacilityOnDate(String facilityId, String date);
   Future<int> countAllSchedules();
   Future<int> countSchedulesForDate(String date);
 
@@ -149,6 +158,24 @@ abstract class SettingsRepository {
   Future<void> setOnboardingComplete(bool complete);
   Future<String?> getLastSyncedAppVersion();
   Future<void> setLastSyncedAppVersion(String version);
+}
+
+abstract class FacilityInteractionRepository {
+  Future<FacilityInteractionMetrics> getMetrics(String facilityId);
+  Future<Map<String, FacilityInteractionMetrics>> getAllMetrics();
+  Future<void> incrementView(String facilityId);
+  Future<void> incrementSwimDetailClick(String facilityId);
+  Future<void> incrementSaved(String facilityId);
+  Future<void> decrementSaved(String facilityId);
+  Future<void> incrementImpression(String facilityId);
+  Future<void> incrementIgnore(String facilityId);
+}
+
+abstract class HabitEventRepository {
+  Future<void> insertEvent(HabitEvent event);
+  Future<List<HabitEvent>> eventsSince(int sinceMs);
+  Future<int> countEventsSince(int sinceMs);
+  Future<void> pruneOlderThan(int beforeMs);
 }
 
 abstract class SavedSwimRepository {

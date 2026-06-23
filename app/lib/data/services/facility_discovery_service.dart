@@ -38,13 +38,18 @@ class FacilityDiscoveryService {
     TieredFacilityPageFetcher? fetcher,
     OttawaHttpClient? httpClient,
   }) : _fetcher = fetcher,
-       _httpClient = httpClient ?? OttawaHttpClient(maxRetries: 1);
+       _httpClient = httpClient ?? OttawaHttpClient();
 
   final TieredFacilityPageFetcher? _fetcher;
   final OttawaHttpClient _httpClient;
 
-  Future<List<DiscoveredFacilityRow>> discoverIndoorPoolsFromSource() async {
-    final html = await _fetchListingHtml(AppConstants.indoorPoolsUrl);
+  Future<List<DiscoveredFacilityRow>> discoverIndoorPoolsFromSource({
+    bool escalateToBrowser = false,
+  }) async {
+    final html = await _fetchListingHtml(
+      AppConstants.indoorPoolsUrl,
+      escalateToBrowser: escalateToBrowser,
+    );
     if (html == null) return [];
     return _parseIndoorListingHtml(html);
   }
@@ -107,12 +112,16 @@ class FacilityDiscoveryService {
   List<DiscoveredFacilityRow> parseIndoorListingForTest(String html) =>
       _parseIndoorListingHtml(html);
 
-  Future<String?> _fetchListingHtml(String url) async {
+  Future<String?> _fetchListingHtml(
+    String url, {
+    bool escalateToBrowser = false,
+  }) async {
     if (_fetcher != null) {
       final result = await _fetcher.fetch(
         url: url,
         facilityId: 'facility-discovery',
         existingCachedSessions: 0,
+        escalateToBrowser: escalateToBrowser,
       );
       return result.page?.html;
     }

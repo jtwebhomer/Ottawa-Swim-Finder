@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../core/utils/ottawa_time.dart';
+import '../../data/services/facility_interaction_service.dart';
 import '../../data/services/app_version_service.dart';
 import '../../data/services/connectivity_service.dart';
 import '../../data/services/location_service.dart';
@@ -11,7 +14,11 @@ import '../../data/services/schedule_validation_service.dart';
 import '../../data/services/swim_query_service.dart';
 import '../../data/services/parser_health_service.dart';
 import '../../data/services/sync_health_service.dart';
+import '../../data/services/incremental_sync_engine.dart';
+import '../../data/services/seed_database_service.dart';
+import '../../data/services/sync_freshness_service.dart';
 import '../../data/services/sync_service.dart';
+import '../../domain/entities/sync_freshness.dart';
 import '../../data/scraper/ottawa_scraper.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/saved_swim.dart';
@@ -42,6 +49,10 @@ class AppState extends ChangeNotifier {
     required AppVersionService versionService,
     required ConnectivityService connectivityService,
     required SavedSwimReminderService reminderService,
+    required SeedDatabaseService seedService,
+    required IncrementalSyncEngine incrementalSync,
+    required SyncFreshnessService freshnessService,
+    required FacilityInteractionService interactionService,
   })  : _facilityRepo = facilityRepo,
         _scheduleRepo = scheduleRepo,
         _scrapeLogRepo = scrapeLogRepo,
@@ -55,7 +66,11 @@ class AppState extends ChangeNotifier {
         _swimQueryService = swimQueryService,
         _versionService = versionService,
         _connectivity = connectivityService,
-        _reminderService = reminderService;
+        _reminderService = reminderService,
+        _seedService = seedService,
+        _incrementalSync = incrementalSync,
+        _freshnessService = freshnessService,
+        _interactionService = interactionService;
 
   final FacilityRepository _facilityRepo;
   final ScheduleRepository _scheduleRepo;
@@ -71,7 +86,19 @@ class AppState extends ChangeNotifier {
   final AppVersionService _versionService;
   final ConnectivityService _connectivity;
   final SavedSwimReminderService _reminderService;
+  final SeedDatabaseService _seedService;
+  final IncrementalSyncEngine _incrementalSync;
+  final SyncFreshnessService _freshnessService;
+  final FacilityInteractionService _interactionService;
   final _traceLogger = ScheduleTraceLogger();
+
+  /// Prevents overlapping background/manual sync runs.
+  Future<IncrementalSyncResult>? _syncInFlight;
+
+  /// Supersedes stale in-flight [refreshAll] results when a newer refresh starts.
+  int _refreshGeneration = 0;
+
+  DateTime? _lastProgressNotifyAt;
 
   bool isLoading = true;
   bool isSyncing = false;
@@ -86,7 +113,10 @@ class AppState extends ChangeNotifier {
   FacilityType? facilityTypeFilter;
   FacilityScheduleMode? scheduleModeFilter;
   Map<String, int> facilitySessionCounts = {};
-  bool needsOnboarding = false;
+  bool backgroundSyncActive = false;
+  SyncFreshnessSnapshot? syncFreshness;
+  bool shouldShowWelcomeSheet = false;
+  bool welcomeSheetScheduled = false;
   bool isOnline = true;
   String? syncMessage;
   String onboardingStage = 'Checking…';
@@ -129,52 +159,91 @@ class AppState extends ChangeNotifier {
   List<ScheduleEntry> get todaysSwims => homeUpcomingSwims;
 
   Future<void> initialize() async {
-    isLoading = true;
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
     isOnline = await _connectivity.checkOnline();
     appVersion = await _versionService.fullVersionLabel();
     lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
+
+    await _seedService.ensureSeeded();
+    await refreshAll();
+    syncFreshness = await _freshnessService.load();
+    onboardingFacilityCount = facilities.length;
+    onboardingSessionCount = totalSessionCount;
+
+    final welcomeDone = await _settingsRepo.isOnboardingComplete();
+    shouldShowWelcomeSheet = !welcomeDone;
     notifyListeners();
 
-    final onboardingDone = await _settingsRepo.isOnboardingComplete();
-    final scheduleCount = await _scheduleRepo.countAllSchedules();
-    needsOnboarding = !onboardingDone || scheduleCount == 0;
+    if (!shouldShowWelcomeSheet) {
+      await _reminderService.rescheduleAll(savedSwims);
+      unawaited(_runBackgroundSync());
+    }
 
-    if (needsOnboarding) {
-      isLoading = false;
+    isLoading = false;
+    notifyListeners();
+  }
+
+  Facility? facilityFor(String facilityId) {
+    for (final facility in facilities) {
+      if (facility.id == facilityId) return facility;
+    }
+    return null;
+  }
+
+  void markWelcomeSheetScheduled() {
+    welcomeSheetScheduled = true;
+  }
+
+  Future<void> _runBackgroundSync() async {
+    if (_syncInFlight != null) return;
+
+    isOnline = await _connectivity.checkOnline();
+    if (!isOnline) {
       notifyListeners();
       return;
     }
 
-    await refreshAll();
-    await _reminderService.rescheduleAll(savedSwims);
-    isLoading = false;
+    final versionSyncNeeded = await _syncService.needsVersionSync();
+    backgroundSyncActive = true;
+    isSyncing = true;
     notifyListeners();
 
-    await _runStartupSync();
-  }
+    _syncInFlight = _incrementalSync.runBackgroundSync(
+      force: versionSyncNeeded,
+      userLat: userLat,
+      userLng: userLng,
+      onProgress: _onSyncProgress,
+      onPhaseComplete: (_) async {
+        syncFreshness = await _freshnessService.load();
+      },
+    );
 
-  Future<void> _runStartupSync() async {
-    final versionSyncNeeded = await _syncService.needsVersionSync();
-    if (versionSyncNeeded) {
-      isSyncing = true;
-      syncMessage = 'Updating schedules for app version $appVersion…';
+    try {
+      final result = await _syncInFlight!;
+      _applySyncResult(result.syncResult);
+      lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
+      syncFreshness = await _freshnessService.load();
+      await refreshAll();
+    } finally {
+      _syncInFlight = null;
+      isSyncing = false;
+      backgroundSyncActive = false;
+      syncProgress = null;
       notifyListeners();
     }
-
-    final syncResult = await _syncService.syncIfNeeded(
-      force: versionSyncNeeded,
-      onProgress: _onSyncProgress,
-    );
-    _applySyncResult(syncResult);
-
-    lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
-    isSyncing = false;
-    syncProgress = null;
-    await refreshAll();
   }
 
   void _onSyncProgress(SyncProgress progress) {
     syncProgress = progress;
+    final now = DateTime.now();
+    if (_lastProgressNotifyAt != null &&
+        now.difference(_lastProgressNotifyAt!).inMilliseconds < 250) {
+      return;
+    }
+    _lastProgressNotifyAt = now;
     notifyListeners();
   }
 
@@ -200,19 +269,17 @@ class AppState extends ChangeNotifier {
         result.syncStatus == SyncStatus.partialSuccess ||
         result.syncStatus == SyncStatus.failed) {
       syncMessage = switch (result.syncStatus) {
+        SyncStatus.success when result.updated > 0 =>
+          'Schedules updated.',
         SyncStatus.success =>
-          'All facilities synced: ${result.updated} updated, ${result.skipped} unchanged',
+          'Schedules are up to date.',
         SyncStatus.partialSuccess =>
-          'Partial update: ${result.updated} updated, '
-          '${result.blocked} blocked by ottawa.ca, '
-          '${result.parseEmpty} empty parse',
+          'Some pool schedules are still updating. Your saved swims remain available.',
         SyncStatus.failed when result.isFirstInstallBlocked =>
-          'Ottawa.ca blocked schedule downloads (bot protection). '
-          'Try again in a few minutes—not a connection error.',
+          'Schedules are updating in the background. Check back in a few minutes.',
         SyncStatus.failed when result.isMostlyBlocked =>
-          'Most facilities blocked by ottawa.ca. Cached schedules preserved.',
-        SyncStatus.failed => result.rootCauseSummary ??
-            'Could not download schedules. Cached data preserved if available.',
+          'Most schedules could not refresh right now. Cached swims remain available.',
+        SyncStatus.failed => 'Could not refresh all schedules. Cached swims remain available.',
       };
     }
   }
@@ -281,61 +348,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> runOnboardingSync() async {
-    isOnline = await _connectivity.checkOnline();
-    if (!isOnline) {
-      syncMessage =
-          'Internet required for first setup. Connect and try again.';
-      notifyListeners();
-      return false;
-    }
-
-    isSyncing = true;
-    onboardingStage = 'Downloading facilities…';
-    notifyListeners();
-
-    onboardingStage = 'Downloading schedules…';
-    notifyListeners();
-
-    final result = await _syncService.forceSync(onProgress: _onSyncProgress);
-    onboardingStage = 'Organizing swims…';
-    notifyListeners();
-
-    final healthy = result.scheduleCountAfter > 0 && !result.antiCorruptionTriggered;
-    _applySyncResult(result);
-    if (healthy) {
-      onboardingFacilityCount = result.totalFacilities;
-      onboardingSessionCount = result.scheduleCountAfter;
-      showOnboardingSuccess = true;
-      syncMessage = null;
-      lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
-      await refreshAll();
-    } else if (result.isFirstInstallBlocked) {
-      syncMessage =
-          'Ottawa.ca blocked schedule downloads (bot protection). '
-          'Try again in a few minutes or on a different network—not a connection error.';
-    } else if (result.antiCorruptionTriggered) {
-      syncMessage = result.antiCorruptionReason;
-    } else {
-      syncMessage = result.rootCauseSummary ??
-          'Could not download schedules. Check connection and try again.';
-    }
-
-    isSyncing = false;
-    syncProgress = null;
-    notifyListeners();
-    return healthy;
-  }
-
-  Future<void> completeOnboarding() async {
+  Future<void> completeWelcome() async {
     await _settingsRepo.setOnboardingComplete(true);
-    needsOnboarding = false;
+    shouldShowWelcomeSheet = false;
     showOnboardingSuccess = false;
-    await _reminderService.rescheduleAll(savedSwims);
     notifyListeners();
+    await _reminderService.rescheduleAll(savedSwims);
+    unawaited(_runBackgroundSync());
   }
+
+  @Deprecated('Use completeWelcome')
+  Future<void> completeOnboarding() => completeWelcome();
 
   Future<void> refreshAll({bool preserveCachedSwimsOnEmpty = true}) async {
+    final generation = ++_refreshGeneration;
     isOnline = await _connectivity.checkOnline();
     final today = OttawaTime.todayDate();
     final now = OttawaTime.nowTime();
@@ -344,6 +370,7 @@ class AppState extends ChangeNotifier {
     final sections = await _swimQueryService.homeSections(
       userLat: userLat,
       userLng: userLng,
+      facilities: newFacilities,
     );
     final newUpcoming = await _scheduleRepo.getUpcomingSwims(
       fromDate: today,
@@ -438,6 +465,7 @@ class AppState extends ChangeNotifier {
       homeSections = await _swimQueryService.homeSections(
         userLat: userLat,
         userLng: userLng,
+        facilities: facilities,
       );
       homeUpcomingSwims = await _scheduleRepo.getUpcomingSwims(
         fromDate: today,
@@ -448,6 +476,8 @@ class AppState extends ChangeNotifier {
       );
     }
 
+    syncFreshness = await _freshnessService.load();
+    if (generation != _refreshGeneration) return;
     notifyListeners();
   }
 
@@ -524,9 +554,14 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> manualSync() async {
+    if (_syncInFlight != null) {
+      await _syncInFlight;
+      return;
+    }
+
     isOnline = await _connectivity.checkOnline();
     if (!isOnline) {
-      syncMessage = 'Offline — using cached data. Connect to sync.';
+      syncMessage = 'You\'re offline — cached swims are still available.';
       notifyListeners();
       return;
     }
@@ -536,14 +571,27 @@ class AppState extends ChangeNotifier {
     syncProgress = null;
     notifyListeners();
 
-    final result = await _syncService.forceSync(onProgress: _onSyncProgress);
-    _applySyncResult(result);
-    lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
-    await refreshAll();
+    _syncInFlight = _incrementalSync.runManualSync(
+      userLat: userLat,
+      userLng: userLng,
+      onProgress: _onSyncProgress,
+      onPhaseComplete: (_) async {
+        syncFreshness = await _freshnessService.load();
+      },
+    );
 
-    isSyncing = false;
-    syncProgress = null;
-    notifyListeners();
+    try {
+      final result = await _syncInFlight!;
+      _applySyncResult(result.syncResult);
+      lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
+      syncFreshness = await _freshnessService.load();
+      await refreshAll();
+    } finally {
+      _syncInFlight = null;
+      isSyncing = false;
+      syncProgress = null;
+      notifyListeners();
+    }
   }
 
   Future<void> search({
@@ -615,7 +663,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(Facility facility) async {
-    await _facilityRepo.toggleFavorite(facility.id, !facility.isFavorite);
+    final nextFavorite = !facility.isFavorite;
+    await _facilityRepo.toggleFavorite(facility.id, nextFavorite);
+    if (nextFavorite) {
+      await _interactionService.recordFavorite(facility.id);
+    } else {
+      await _interactionService.recordUnfavorite(facility.id);
+    }
     await refreshAll();
   }
 
@@ -642,6 +696,11 @@ class AppState extends ChangeNotifier {
       );
     }
     savedSwims = await _savedSwimRepo.getAll(upcomingOnly: true);
+    await _interactionService.recordSaveSwim(
+      entry.facilityId,
+      swimStartTime: entry.startTime,
+      swimDate: entry.date,
+    );
     final saved = await _savedSwimRepo.getById(savedId);
     if (saved != null) {
       if (saved.isRecurring) {
@@ -819,7 +878,7 @@ class AppState extends ChangeNotifier {
 
   String get dataAgeLabel {
     final last = lastSuccessfulSyncAt;
-    if (last == null) return 'Unknown';
+    if (last == null) return 'Bundled schedules';
     final days = DateTime.now().difference(last).inDays;
     if (days == 0) return 'Today';
     return '$days day${days == 1 ? '' : 's'}';

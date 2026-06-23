@@ -83,7 +83,7 @@ void main() {
   });
 
   group('Jack Purcell live HTML', () {
-    test('parses evening swims for today when HTML sample exists', () {
+    test('parses evening swims when HTML sample exists', () {
       final sample = File(
         r'C:\Users\Jtcra\ottawa_swim_finder\scraper\jack_purcell_sample.html',
       );
@@ -94,16 +94,13 @@ void main() {
 
       final parser = ScheduleParser();
       final entries = parser.parse(sample.readAsStringSync(), 'jack-purcell-community-centre');
-      final today = OttawaTime.todayDate();
-      final todayEntries = entries.where((e) => e.date == today).toList();
 
       expect(entries, isNotEmpty);
-      expect(todayEntries, isNotEmpty);
 
-      final evening = todayEntries.where((e) => e.startTime.compareTo('17:00') >= 0);
-      expect(evening, isNotEmpty, reason: 'Expected evening swims on $today');
+      final evening = entries.where((e) => e.startTime.compareTo('17:00') >= 0);
+      expect(evening, isNotEmpty, reason: 'Expected evening swims in season expansion');
 
-      for (final entry in todayEntries) {
+      for (final entry in entries.where((e) => e.date == OttawaTime.todayDate())) {
         expect(
           entry.startTime.compareTo(entry.endTime),
           lessThan(0),

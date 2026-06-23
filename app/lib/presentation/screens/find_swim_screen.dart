@@ -100,7 +100,7 @@ class _FindSwimScreenState extends State<FindSwimScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
+    final state = context.read<AppState>();
     final (startDate, endDate) = _dateRange();
 
     return Scaffold(
@@ -246,34 +246,40 @@ class _FindSwimScreenState extends State<FindSwimScreen> {
             ),
             const SizedBox(height: 8),
             if (_results.isEmpty)
-              const Text('No matching swims. Try another date/time or sync.')
+              const Text('No matching swims. Try another date or check Nearby.')
             else
-              ..._results.map(
-                (swim) => ScheduleSessionCard(
-                  entry: swim,
-                  showFacility: true,
-                  isStale: state.isFacilityStale(swim.facilityId),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          FacilityScreen(facilityId: swim.facilityId),
-                    ),
-                  ),
-                  onSave: () => showSaveSwimSheet(
-                    context,
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _results.length,
+                itemBuilder: (context, index) {
+                  final swim = _results[index];
+                  return ScheduleSessionCard(
                     entry: swim,
-                    onSave: ({reminderMinutes, asRecurring = false}) =>
-                        state.saveSwim(
-                      swim,
-                      reminderMinutes: reminderMinutes,
-                      asRecurring: asRecurring,
+                    showFacility: true,
+                    isStale: state.isFacilityStale(swim.facilityId),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            FacilityScreen(facilityId: swim.facilityId),
+                      ),
                     ),
-                  ),
-                  onExport: swim.date != null
-                      ? () => showCalendarExportSheet(context, entry: swim)
-                      : null,
-                ),
+                    onSave: () => showSaveSwimSheet(
+                      context,
+                      entry: swim,
+                      onSave: ({reminderMinutes, asRecurring = false}) =>
+                          state.saveSwim(
+                        swim,
+                        reminderMinutes: reminderMinutes,
+                        asRecurring: asRecurring,
+                      ),
+                    ),
+                    onExport: swim.date != null
+                        ? () => showCalendarExportSheet(context, entry: swim)
+                        : null,
+                  );
+                },
               ),
           ],
         ],

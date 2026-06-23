@@ -49,7 +49,9 @@ Future<void> showCalendarExportSheet(
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Export failed: $e')),
+                    const SnackBar(
+                      content: Text('Could not open calendar. Try again in a moment.'),
+                    ),
                   );
                 }
               }
@@ -77,7 +79,9 @@ Future<void> showCalendarExportSheet(
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Export failed: $e')),
+                    const SnackBar(
+                      content: Text('Could not open calendar. Try again in a moment.'),
+                    ),
                   );
                 }
               }

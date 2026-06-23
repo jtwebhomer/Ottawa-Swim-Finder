@@ -51,7 +51,7 @@ void main() {
     verifyNever(() => browserFetcher.fetch(any()));
   });
 
-  test('tier 1 blocked escalates to tier 2 browser', () async {
+  test('tier 1 blocked escalates to tier 2 browser when enabled', () async {
     when(() => httpClient.fetchFacilityPage(any())).thenAnswer(
       (_) async => http.Response(_blockedHtml, 200),
     );
@@ -69,6 +69,7 @@ void main() {
       url: 'https://ottawa.ca/test',
       facilityId: 'test-facility',
       existingCachedSessions: 0,
+      escalateToBrowser: true,
     );
 
     expect(result.outcome, TieredFetchOutcome.success);
@@ -78,6 +79,22 @@ void main() {
       isTrue,
     );
     verify(() => browserFetcher.fetch(any())).called(1);
+  });
+
+  test('tier 1 blocked skips browser by default', () async {
+    when(() => httpClient.fetchFacilityPage(any())).thenAnswer(
+      (_) async => http.Response(_blockedHtml, 200),
+    );
+    when(() => browserFetcher.isAvailable).thenReturn(true);
+
+    final result = await fetcher.fetch(
+      url: 'https://ottawa.ca/test',
+      facilityId: 'test-facility',
+      existingCachedSessions: 0,
+    );
+
+    expect(result.outcome, TieredFetchOutcome.blocked);
+    verifyNever(() => browserFetcher.fetch(any()));
   });
 
   test('tier 3 uses cached DB when all fetch tiers blocked', () async {
@@ -98,6 +115,7 @@ void main() {
       url: 'https://ottawa.ca/test',
       facilityId: 'test-facility',
       existingCachedSessions: 42,
+      escalateToBrowser: true,
     );
 
     expect(result.outcome, TieredFetchOutcome.staleCached);

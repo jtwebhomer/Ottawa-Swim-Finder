@@ -4,18 +4,15 @@ import 'package:flutter_map_marker_cluster_2/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/services/map_tile_cache_service.dart';
-import '../../data/services/swim_query_service.dart';
 import '../../di/injection.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/schedule_entry.dart';
 import '../../domain/usecases/swim_usecases.dart';
 import '../providers/app_state.dart';
-import '../widgets/navigation_launch_button.dart';
-import '../widgets/save_swim_sheet.dart';
-import '../widgets/swim_session_presenter.dart';
+import '../widgets/home_swim_card.dart';
+import '../widgets/sync_status_indicator.dart';
 import 'facility_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -33,150 +30,198 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
     final tileCache = getIt<MapTileCacheService>();
 
-    final mappableFacilities = state.facilities
-        .where((f) => f.latitude != null && f.longitude != null)
-        .toList();
-
-    final clusterMarkers = mappableFacilities.map((facility) {
-      final status = state.pinStatuses[facility.id] ?? PinStatus.inactive;
-      final color = _pinColor(status);
-      return Marker(
-        point: LatLng(facility.latitude!, facility.longitude!),
-        width: 40,
-        height: 40,
-        child: GestureDetector(
-          onTap: () => setState(() => _selectedFacility = facility),
-          child: Icon(Icons.location_on, color: color, size: 40),
-        ),
-      );
-    }).toList();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Pool Map'),
-            const SizedBox(width: 4),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              tooltip: 'Sync schedules',
-              onPressed: state.isSyncing ? null : state.manualSync,
-              icon: state.isSyncing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.sync, size: 22),
-            ),
-          ],
-        ),
-        actions: [
-          if (state.userLat != null && state.userLng != null)
-            IconButton(
-              icon: const Icon(Icons.my_location),
-              tooltip: 'Center on my location',
-              onPressed: () {
-                _mapController.move(
-                  LatLng(state.userLat!, state.userLng!),
-                  12,
-                );
-              },
-            ),
-        ],
+    return Selector<
+        AppState,
+        ({
+          List<Facility> facilities,
+          Map<String, PinStatus> pinStatuses,
+          double? userLat,
+          double? userLng,
+        })>(
+      selector: (_, state) => (
+        facilities: state.facilities,
+        pinStatuses: state.pinStatuses,
+        userLat: state.userLat,
+        userLng: state.userLng,
       ),
-      body: state.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Expanded(
-                  child: FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: _ottawaCenter,
-                      initialZoom: 11,
-                      onTap: (_, __) => setState(() => _selectedFacility = null),
-                    ),
-                    children: [
-                      tileCache.tileLayer,
-                      if (state.userLat != null && state.userLng != null)
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              point: LatLng(state.userLat!, state.userLng!),
-                              width: 36,
-                              height: 36,
-                              child: const Icon(
-                                Icons.person_pin_circle,
-                                color: Colors.blue,
-                                size: 36,
-                              ),
+      builder: (context, data, _) {
+        final mappableFacilities = data.facilities
+            .where((f) => f.latitude != null && f.longitude != null)
+            .toList();
+
+        final clusterMarkers = mappableFacilities.map((facility) {
+          final status = data.pinStatuses[facility.id] ?? PinStatus.inactive;
+          return Marker(
+            point: LatLng(facility.latitude!, facility.longitude!),
+            width: 120,
+            height: 56,
+            alignment: Alignment.bottomCenter,
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedFacility = facility),
+              child: _FacilityPin(
+                facility: facility,
+                status: status,
+                selected: _selectedFacility?.id == facility.id,
+              ),
+            ),
+          );
+        }).toList();
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Map'),
+            actions: [
+              if (data.userLat != null && data.userLng != null)
+                IconButton(
+                  icon: const Icon(Icons.my_location),
+                  tooltip: 'Center on my location',
+                  onPressed: () {
+                    _mapController.move(
+                      LatLng(data.userLat!, data.userLng!),
+                      12,
+                    );
+                  },
+                ),
+              const SyncStatusIndicator(),
+            ],
+          ),
+          body: Column(
+            children: [
+              Expanded(
+                child: FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: _ottawaCenter,
+                    initialZoom: 11,
+                    onTap: (_, __) => setState(() => _selectedFacility = null),
+                  ),
+                  children: [
+                    tileCache.tileLayer,
+                    if (data.userLat != null && data.userLng != null)
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: LatLng(data.userLat!, data.userLng!),
+                            width: 36,
+                            height: 36,
+                            child: const Icon(
+                              Icons.person_pin_circle,
+                              color: Colors.blue,
+                              size: 36,
                             ),
-                          ],
-                        ),
-                      MarkerClusterLayerWidget(
-                        options: MarkerClusterLayerOptions(
-                          maxClusterRadius: 60,
-                          size: const Size(44, 44),
-                          alignment: Alignment.center,
-                          padding: const EdgeInsets.all(48),
-                          maxZoom: 14,
-                          markers: clusterMarkers,
-                          builder: (context, markers) {
-                            return Container(
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.primary,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  markers.length.toString(),
-                                  style: TextStyle(
-                                    color: Theme.of(context).colorScheme.onPrimary,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                          ),
+                        ],
+                      ),
+                    MarkerClusterLayerWidget(
+                      options: MarkerClusterLayerOptions(
+                        maxClusterRadius: 60,
+                        size: const Size(44, 44),
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.all(48),
+                        maxZoom: 14,
+                        markers: clusterMarkers,
+                        builder: (context, markers) {
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: Center(
+                              child: Text(
+                                markers.length.toString(),
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.onPrimary,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_selectedFacility != null)
-                  _FacilityBottomSheet(
-                    facility: _selectedFacility!,
-                    status: state.pinStatuses[_selectedFacility!.id] ??
-                        PinStatus.inactive,
-                    onOpenDetails: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            FacilityScreen(facilityId: _selectedFacility!.id),
+                            ),
+                          );
+                        },
                       ),
                     ),
-                    onDismiss: () => setState(() => _selectedFacility = null),
-                  )
-                else
-                  _MapLegend(facilityCount: mappableFacilities.length),
-              ],
-            ),
+                  ],
+                ),
+              ),
+              if (_selectedFacility != null)
+                _FacilityBottomSheet(
+                  facility: _selectedFacility!,
+                  status: data.pinStatuses[_selectedFacility!.id] ??
+                      PinStatus.inactive,
+                  onDismiss: () => setState(() => _selectedFacility = null),
+                )
+              else
+                _MapLegend(facilityCount: mappableFacilities.length),
+            ],
+          ),
+        );
+      },
     );
   }
+}
 
-  Color _pinColor(PinStatus status) => switch (status) {
-        PinStatus.active => AppTheme.pinActive,
-        PinStatus.upcoming => AppTheme.pinUpcoming,
-        PinStatus.inactive => AppTheme.pinInactive,
-      };
+class _FacilityPin extends StatelessWidget {
+  const _FacilityPin({
+    required this.facility,
+    required this.status,
+    required this.selected,
+  });
+
+  final Facility facility;
+  final PinStatus status;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      PinStatus.active => AppTheme.pinActive,
+      PinStatus.upcoming => AppTheme.pinUpcoming,
+      PinStatus.inactive => AppTheme.pinInactive,
+    };
+    final label = switch (status) {
+      PinStatus.active => 'Now',
+      PinStatus.upcoming => 'Soon',
+      PinStatus.inactive => 'Closed',
+    };
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? color : Theme.of(context).dividerColor,
+              width: selected ? 2 : 1,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                blurRadius: 4,
+                color: Color(0x33000000),
+                offset: Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+          ),
+        ),
+        Icon(
+          Icons.location_on,
+          color: color,
+          size: selected ? 44 : 36,
+        ),
+      ],
+    );
+  }
 }
 
 class _MapLegend extends StatelessWidget {
@@ -190,12 +235,15 @@ class _MapLegend extends StatelessWidget {
       elevation: 8,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+        child: Wrap(
+          alignment: WrapAlignment.spaceAround,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
           children: [
-            _LegendItem(color: AppTheme.pinActive, label: 'Active now'),
-            _LegendItem(color: AppTheme.pinUpcoming, label: 'Upcoming'),
-            _LegendItem(color: AppTheme.pinInactive, label: 'No swims left'),
+            _LegendItem(color: AppTheme.pinActive, label: 'Now'),
+            _LegendItem(color: AppTheme.pinUpcoming, label: 'Soon'),
+            _LegendItem(color: AppTheme.pinInactive, label: 'Closed'),
             Text('$facilityCount pools'),
           ],
         ),
@@ -215,7 +263,7 @@ class _LegendItem extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.location_on, color: color, size: 20),
+        Icon(Icons.circle, color: color, size: 12),
         const SizedBox(width: 4),
         Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
@@ -227,13 +275,11 @@ class _FacilityBottomSheet extends StatefulWidget {
   const _FacilityBottomSheet({
     required this.facility,
     required this.status,
-    required this.onOpenDetails,
     required this.onDismiss,
   });
 
   final Facility facility;
   final PinStatus status;
-  final VoidCallback onOpenDetails;
   final VoidCallback onDismiss;
 
   @override
@@ -241,7 +287,7 @@ class _FacilityBottomSheet extends StatefulWidget {
 }
 
 class _FacilityBottomSheetState extends State<_FacilityBottomSheet> {
-  FacilitySwimSummary? _summary;
+  List<ScheduleEntry> _swims = [];
   bool _loading = true;
 
   @override
@@ -253,9 +299,16 @@ class _FacilityBottomSheetState extends State<_FacilityBottomSheet> {
   Future<void> _load() async {
     final summary =
         await context.read<AppState>().facilitySwimSummary(widget.facility.id);
+    final cards = <ScheduleEntry>[];
+    if (summary.current != null) cards.add(summary.current!);
+    if (summary.next != null && summary.next != summary.current) {
+      cards.add(summary.next!);
+    }
+    if (summary.tomorrowFirst != null) cards.add(summary.tomorrowFirst!);
+
     if (mounted) {
       setState(() {
-        _summary = summary;
+        _swims = cards;
         _loading = false;
       });
     }
@@ -263,115 +316,98 @@ class _FacilityBottomSheetState extends State<_FacilityBottomSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final summary = _summary;
+    final theme = Theme.of(context);
+    final statusLabel = switch (widget.status) {
+      PinStatus.active => 'Swimming now',
+      PinStatus.upcoming => 'Starting soon',
+      PinStatus.inactive => 'No swims right now',
+    };
 
     return Material(
-      elevation: 8,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.location_on,
-                  color: switch (widget.status) {
-                    PinStatus.active => AppTheme.pinActive,
-                    PinStatus.upcoming => AppTheme.pinUpcoming,
-                    PinStatus.inactive => AppTheme.pinInactive,
-                  },
-                  size: 32,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.facility.name,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(widget.facility.address ?? ''),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: widget.onDismiss,
-                ),
-              ],
-            ),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(8),
-                child: LinearProgressIndicator(),
-              )
-            else if (summary != null) ...[
-              _swimRow('Current Swim', summary.current),
-              _swimRow('Next Swim', summary.next),
-              _swimRow('Tomorrow\'s First Swim', summary.tomorrowFirst),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+      elevation: 12,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.48,
+          ),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (summary.next != null || summary.current != null)
-                    FilledButton.tonalIcon(
-                      icon: const Icon(Icons.bookmark_add_outlined),
-                      label: const Text('Save Swim'),
-                      onPressed: () {
-                        final entry = summary.current ?? summary.next!;
-                        showSaveSwimSheet(
-                          context,
-                          entry: entry,
-                          onSave: ({reminderMinutes, asRecurring = false}) =>
-                              state.saveSwim(
-                            entry,
-                            reminderMinutes: reminderMinutes,
-                            asRecurring: asRecurring,
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.facility.name,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
                           ),
-                        );
-                      },
+                        ),
+                        if (widget.facility.address != null)
+                          Text(
+                            widget.facility.address!,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        Text(
+                          statusLabel,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: switch (widget.status) {
+                              PinStatus.active => AppTheme.pinActive,
+                              PinStatus.upcoming => AppTheme.pinUpcoming,
+                              PinStatus.inactive => theme.colorScheme.outline,
+                            },
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
-                  if (widget.facility.latitude != null &&
-                      widget.facility.longitude != null)
-                    NavigationLaunchButton(
-                      latitude: widget.facility.latitude!,
-                      longitude: widget.facility.longitude!,
-                      title: widget.facility.name,
-                      compact: true,
-                    ),
-                  OutlinedButton(
-                    onPressed: widget.onOpenDetails,
-                    child: const Text('View Schedule'),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: widget.onDismiss,
                   ),
                 ],
               ),
-            ],
-          ],
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(child: Text('Loading swims…')),
+                )
+              else if (_swims.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'No swims available right now. Try Tonight or Tomorrow.',
+                  ),
+                )
+              else
+                ..._swims.map((s) => HomeSwimCard(entry: s, compact: true)),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          FacilityScreen(facilityId: widget.facility.id),
+                    ),
+                  ),
+                  child: const Text('Full schedule'),
+                ),
+              ),
+                ],
+              ),
+            ),
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _swimRow(String label, ScheduleEntry? entry) {
-    if (entry == null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Text('$label: —', style: Theme.of(context).textTheme.bodySmall),
-      );
-    }
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.pool, size: 20),
-      title: Text(label, style: Theme.of(context).textTheme.labelMedium),
-      subtitle: Text(
-        '${SwimSessionPresenter.sessionTitle(entry)} · '
-        '${SwimSessionPresenter.formatRange(entry)}',
       ),
     );
   }

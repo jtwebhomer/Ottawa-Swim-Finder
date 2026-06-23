@@ -96,4 +96,36 @@ void main() {
     );
     expect(decision.allowWrite, isTrue);
   });
+
+  group('isSyncHealthy', () {
+    test('rejects blocked-only runs with no facility updates', () {
+      expect(
+        guard.isSyncHealthy(
+          totalFacilities: 10,
+          updated: 0,
+          skipped: 10,
+          errors: 0,
+          scheduleCountBefore: 200,
+          scheduleCountAfter: 200,
+          blocked: 10,
+        ),
+        isFalse,
+      );
+    });
+
+    test('accepts runs with at least one facility updated', () {
+      expect(
+        guard.isSyncHealthy(
+          totalFacilities: 10,
+          updated: 2,
+          skipped: 8,
+          errors: 0,
+          scheduleCountBefore: 200,
+          scheduleCountAfter: 205,
+          blocked: 3,
+        ),
+        isTrue,
+      );
+    });
+  });
 }

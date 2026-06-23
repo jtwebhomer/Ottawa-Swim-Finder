@@ -1,36 +1,50 @@
 # Ottawa Swim Finder
 
-Find City of Ottawa public pool swim times in one place — searchable, map-based, and works offline after sync.
+Find City of Ottawa public pool swim times in one place — instant on launch, searchable, map-based, and fully usable offline.
 
 [![Latest release](https://img.shields.io/github/v/release/jtwebhomer/Ottawa-Swim-Finder)](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)
 
 ## Download (Android)
 
-Get the latest APK from **[Releases](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)** or download [`releases/Ottawa-Swim-Finder-v1.3.0-build5.apk`](releases/Ottawa-Swim-Finder-v1.3.0-build5.apk) directly from this repo.
+Get the latest APK from **[Releases](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)** or download [`releases/Ottawa-Swim-Finder-v1.4.0-rc1.apk`](releases/Ottawa-Swim-Finder-v1.4.0-rc1.apk) directly from this repo.
 
-1. Download `Ottawa-Swim-Finder-v1.3.0-build5.apk`
+1. Download `Ottawa-Swim-Finder-v1.4.0-rc1.apk`
 2. Install on your Android phone or tablet (enable “Install unknown apps” if prompted)
-3. Open the app → **Settings → Manual Sync** to download schedules
+3. Open the app — bundled schedules load immediately; live refresh runs in the background when online
 
 No Google Play listing yet — installs are via the GitHub release APK.
 
 ## Features
 
-- **20 indoor pools** from the City of Ottawa
-- **Offline-first** — schedules stored locally after sync
-- **Map view** with color-coded pins (active now / upcoming / done for today)
-- **Today tab** with swim-type and time filters
-- **Find a Swim at…** — pick a time and see what’s on nearby
-- **Search** by category, facility, date, time, and distance
-- **Favorites** for quick access
+- **30+ Ottawa pools** — indoor, outdoor, wave, and wading facilities
+- **Instant home screen** — bundled seed data on first launch, no blocking sync screen
+- **Smart sections** — Swimming Now, Starting Soon, Tonight, and Tomorrow
+- **5-tab navigation** — Home, Find Swim, Map, Saved, Settings
+- **Offline-first** — schedules stored locally; app stays usable without internet
+- **Rate-limit safe sync** — phased background refresh with cache preservation and bot-block handling
+- **Map view** — clustered pins with facility bottom sheet and directions
+- **Find Swim** — search by date, time, category, facility, and distance
+- **Saved swims** — bookmarks with optional reminders
+- **Habit hints** — gentle “you usually swim around this time” suggestions (on-device only)
 - **Navigate** to any pool in your preferred maps app
-- **Background sync** every 6 hours (when online)
+
+## What's new in v1.4.0-rc1
+
+Release candidate with production QA and chaos testing:
+
+- Sync mutex and refresh coalescing (no duplicate sync jobs)
+- Transactional schedule commits (no partial DB wipes)
+- Bot-block / partial sync safety — cached data never overwritten by challenge pages
+- Responsive layout fixes for phones and tablets
+- Consumer-friendly error and empty states
+- 83 automated tests passing
 
 ## Project structure
 
 ```
 ottawa_swim_finder/
 ├── app/          # Flutter Android app
+├── releases/     # Release APKs
 ├── scraper/      # Python schedule scraper (development / validation)
 ├── docs/         # Architecture and schema notes
 └── scripts/      # Build helpers
@@ -49,8 +63,6 @@ ottawa_swim_finder/
 ```bash
 cd app
 flutter pub get
-# After pub get, if ObjectBox build fails on Windows:
-#   ../scripts/patch_objectbox.ps1
 flutter run
 ```
 
@@ -63,7 +75,7 @@ flutter build apk --release
 
 Output: `app/build/app/outputs/flutter-apk/app-release.apk`
 
-The map uses **OpenStreetMap** via `flutter_map` with offline tile caching. No API key required.
+The map uses **OpenStreetMap** via `flutter_map` with optional offline tile caching. No API key required.
 
 ### Python scraper
 

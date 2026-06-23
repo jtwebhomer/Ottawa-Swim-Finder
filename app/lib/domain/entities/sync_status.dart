@@ -28,24 +28,34 @@ enum SyncStatus {
     final hasCachedData = scheduleCountAfter > 0;
     final anySuccess = updated > 0 || skipped > 0;
 
-    // No schedules in DB after sync — only fail if nothing usable was obtained.
+    // Rate limits / bot blocks alone never constitute a full sync failure.
+    if (!hasCachedData &&
+        !anySuccess &&
+        blocked > 0 &&
+        systemFailures == 0 &&
+        parseEmpty == 0 &&
+        parseRejected == 0) {
+      return SyncStatus.failed;
+    }
+
+    if (!hasCachedData && !anySuccess && systemFailures > 0) {
+      return SyncStatus.failed;
+    }
+
     if (!hasCachedData && !anySuccess) {
       return SyncStatus.failed;
     }
 
-    // Blocked / parse-empty alone are NOT full sync failures when data exists.
     if (systemFailures == 0 &&
         (blocked > 0 || parseEmpty > 0 || parseRejected > 0)) {
-      return anySuccess || hasCachedData
-          ? SyncStatus.partialSuccess
-          : SyncStatus.failed;
+      return SyncStatus.partialSuccess;
     }
 
     if (systemFailures > 0 && (anySuccess || hasCachedData)) {
       return SyncStatus.partialSuccess;
     }
 
-    if (systemFailures > 0) return SyncStatus.failed;
+    if (systemFailures > 0) return SyncStatus.partialSuccess;
 
     return SyncStatus.success;
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/services/facility_interaction_service.dart';
 import '../../data/services/navigation_service.dart';
 import '../../di/injection.dart';
 import '../providers/app_state.dart';
@@ -11,17 +12,31 @@ class NavigationLaunchButton extends StatelessWidget {
     required this.latitude,
     required this.longitude,
     required this.title,
+    this.facilityId,
+    this.swimStartTime,
+    this.swimDate,
     this.compact = false,
   });
 
   final double latitude;
   final double longitude;
   final String title;
+  final String? facilityId;
+  final String? swimStartTime;
+  final String? swimDate;
   final bool compact;
 
   Future<void> _launch(BuildContext context) async {
     final nav = getIt<NavigationService>();
     final state = context.read<AppState>();
+
+    if (facilityId != null) {
+      await getIt<FacilityInteractionService>().recordDirections(
+        facilityId!,
+        swimStartTime: swimStartTime,
+        swimDate: swimDate,
+      );
+    }
 
     try {
       await nav.showDirections(
@@ -39,7 +54,9 @@ class NavigationLaunchButton extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open navigation: $e')),
+          const SnackBar(
+            content: Text('Could not open navigation. Try again in a moment.'),
+          ),
         );
       }
     }

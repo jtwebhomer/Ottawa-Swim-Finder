@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../data/services/swim_query_service.dart';
+import '../../domain/entities/saved_swim.dart';
 import '../providers/app_state.dart';
+import '../widgets/navigation_launch_button.dart';
 import 'facility_screen.dart';
 
 class SavedScreen extends StatelessWidget {
@@ -12,95 +14,165 @@ class SavedScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Saved Swims')),
+      appBar: AppBar(title: const Text('Saved')),
       body: state.savedSwims.isEmpty
-          ? const Center(
-              child: Text(
-                'Save swims from Home, Calendar, or Find Swim.\n'
-                'Tap the bookmark icon on any session.',
-                textAlign: TextAlign.center,
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.bookmark_border,
+                      size: 56,
+                      color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No saved swims yet',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Tap the bookmark on any swim card to save it here — '
+                      'like starred places in Maps.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             )
-          : ListView.builder(
+          : ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: state.savedSwims.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final saved = state.savedSwims[index];
+                final facility = state.facilityFor(saved.facilityId);
+                final next = _nextOccurrenceLabel(saved);
+
                 return Card(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ListTile(
-                        title: Text(
-                          SwimCategories.displayName(
-                            category: saved.category,
-                            rawName: saved.rawCategory,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${saved.facilityName ?? saved.facilityId}\n'
-                          '${saved.isRecurring ? saved.patternLabel : saved.date} · '
-                          '${saved.startTime}–${saved.endTime}',
-                        ),
-                        isThreeLine: true,
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () => state.removeSavedSwim(saved.id!),
-                        ),
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                FacilityScreen(facilityId: saved.facilityId),
-                          ),
-                        ),
-                      ),
-                      if (saved.isRecurring && saved.upcomingOccurrences.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                          child: Text(
-                            'Upcoming: ${saved.upcomingOccurrences.take(3).map((o) => '${o.date} ${o.startTime}').join(' · ')}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                        child: Row(
+                  elevation: 0,
+                  color: theme.colorScheme.surfaceContainerLow,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                              child: DropdownButtonFormField<int?>(
-                                initialValue: saved.reminderMinutes,
-                                decoration: const InputDecoration(
-                                  labelText: 'Reminder',
-                                  isDense: true,
-                                  border: OutlineInputBorder(),
-                                ),
-                                items: [
-                                  const DropdownMenuItem(
-                                    value: null,
-                                    child: Text('None'),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    saved.facilityName ?? facility?.name ?? 'Pool',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                  ...ReminderOptions.values.map(
-                                    (m) => DropdownMenuItem(
-                                      value: m,
-                                      child: Text(ReminderOptions.labelFor(m)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    SwimCategories.displayName(
+                                      category: saved.category,
+                                      rawName: saved.rawCategory,
+                                    ),
+                                    style: theme.textTheme.bodyLarge,
+                                  ),
+                                  Text(
+                                    next,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ],
-                                onChanged: (v) =>
-                                    state.updateSavedSwimReminder(saved.id!, v),
                               ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              tooltip: 'Remove',
+                              onPressed: () => state.removeSavedSwim(saved.id!),
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              saved.reminderMinutes != null
+                                  ? Icons.notifications_active_outlined
+                                  : Icons.notifications_none_outlined,
+                              size: 18,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              saved.reminderMinutes != null
+                                  ? 'Reminder ${ReminderOptions.labelFor(saved.reminderMinutes!)}'
+                                  : 'No reminder',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                            const Spacer(),
+                            if (facility?.latitude != null &&
+                                facility?.longitude != null)
+                              NavigationLaunchButton(
+                                latitude: facility!.latitude!,
+                                longitude: facility.longitude!,
+                                title: facility.name,
+                                facilityId: facility.id,
+                                compact: true,
+                              ),
+                            TextButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => FacilityScreen(
+                                    facilityId: saved.facilityId,
+                                  ),
+                                ),
+                              ),
+                              child: const Text('View pool'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
             ),
     );
+  }
+
+  String _nextOccurrenceLabel(SavedSwim saved) {
+    if (saved.isRecurring) {
+      final next = saved.upcomingOccurrences.isNotEmpty
+          ? saved.upcomingOccurrences.first
+          : null;
+      if (next != null) {
+        return 'Next: ${next.date} · ${_format12(next.startTime)}';
+      }
+      return saved.patternLabel;
+    }
+    return '${saved.date} · ${_format12(saved.startTime)}–${_format12(saved.endTime)}';
+  }
+
+  String _format12(String time24) {
+    final parts = time24.split(':');
+    if (parts.length != 2) return time24;
+    var hour = int.tryParse(parts[0]) ?? 0;
+    final minute = int.tryParse(parts[1]) ?? 0;
+    final period = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+    if (hour == 0) hour = 12;
+    return '$hour:${minute.toString().padLeft(2, '0')} $period';
   }
 }

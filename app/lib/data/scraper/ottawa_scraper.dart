@@ -5,11 +5,15 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/constants/app_constants.dart';
+import '../../core/constants/sync_rate_limit_policy.dart';
 import '../../core/constants/sync_thresholds.dart';
 import '../../core/logging/app_logger.dart';
 import '../../core/utils/ottawa_time.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/facility_fetch_tier.dart';
+import '../../domain/entities/facility_priority.dart';
+import '../../domain/entities/sync_location_context.dart';
 import '../../domain/entities/facility_type.dart';
 import '../../domain/entities/facility_sync_diagnostic.dart';
 import '../../domain/entities/schedule_entry.dart';
@@ -19,10 +23,13 @@ import '../../domain/entities/sync_progress.dart';
 import '../../domain/entities/sync_status.dart';
 import '../../domain/repositories/repositories.dart';
 import '../services/blocked_page_detector.dart';
+import '../services/facility_backoff_tracker.dart';
 import '../services/facility_discovery_service.dart';
 import '../services/facility_sync_logger.dart';
 import '../services/fetch/tiered_facility_page_fetcher.dart';
 import '../services/ottawa_http_client.dart';
+import '../services/partial_refresh_planner.dart';
+import '../services/smart_sync_queue.dart';
 import '../services/schedule_sanity_checker.dart';
 import '../services/schedule_trace_logger.dart';
 import '../services/sync_safety_guard.dart';
@@ -93,6 +100,10 @@ class OttawaScraper {
     SyncSafetyGuard? safetyGuard,
     FacilitySyncLogger? facilitySyncLogger,
     FacilityDiscoveryService? discoveryService,
+    FacilityBackoffTracker? backoffTracker,
+    SettingsRepository? settingsRepo,
+    SmartSyncQueue? smartSyncQueue,
+    PartialRefreshPlanner? refreshPlanner,
   })  : _facilityRepo = facilityRepo,
         _scheduleRepo = scheduleRepo,
         _scrapeLogRepo = scrapeLogRepo,
@@ -107,7 +118,12 @@ class OttawaScraper {
             FacilityDiscoveryService(
               fetcher: tieredFetcher ??
                   TieredFacilityPageFetcher(httpClient: httpClient),
-            );
+              httpClient: httpClient,
+            ),
+        _backoffTracker = backoffTracker,
+        _settingsRepo = settingsRepo,
+        _smartSyncQueue = smartSyncQueue,
+        _refreshPlanner = refreshPlanner ?? const PartialRefreshPlanner();
 
   final FacilityRepository _facilityRepo;
   final ScheduleRepository _scheduleRepo;
@@ -119,6 +135,10 @@ class OttawaScraper {
   final SyncSafetyGuard _safetyGuard;
   final FacilitySyncLogger _facilitySyncLogger;
   final FacilityDiscoveryService _discovery;
+  final FacilityBackoffTracker? _backoffTracker;
+  final SettingsRepository? _settingsRepo;
+  final SmartSyncQueue? _smartSyncQueue;
+  final PartialRefreshPlanner _refreshPlanner;
 
   FacilityDiscoveryService get discoveryService => _discovery;
 
@@ -143,10 +163,28 @@ class OttawaScraper {
     return sha256.convert(utf8.encode(slice)).toString().substring(0, 16);
   }
 
-  Future<void> syncFacilityCatalog() async {
-    final canonical = await _discovery.loadCanonicalFacilities();
-    final discovered = await _discovery.discoverIndoorPoolsFromSource();
+  Future<void> syncFacilityCatalog({bool force = false}) async {
     final existingList = await _facilityRepo.getAllFacilities();
+    if (_settingsRepo != null && !force && existingList.isNotEmpty) {
+      final lastCatalogSync = await _settingsRepo!.getString(
+        AppConstants.settingsLastCatalogSyncAt,
+      );
+      final lastMs = int.tryParse(lastCatalogSync ?? '') ?? 0;
+      final hoursSince =
+          (DateTime.now().millisecondsSinceEpoch - lastMs) / (1000 * 60 * 60);
+      if (hoursSince < SyncRateLimitPolicy.catalogRefreshIntervalHours) {
+        appLogger.i(
+          '[catalog] Skipping live discovery — last refresh '
+          '${hoursSince.toStringAsFixed(1)}h ago',
+        );
+        return;
+      }
+    }
+
+    final canonical = await _discovery.loadCanonicalFacilities();
+    final discovered = await _discovery.discoverIndoorPoolsFromSource(
+      escalateToBrowser: false,
+    );
     final existing = {for (final f in existingList) f.id: f};
     final canonicalById = {for (final f in canonical) f.id: f};
 
@@ -193,6 +231,13 @@ class OttawaScraper {
       '[catalog] Synced ${toUpsert.length} facilities '
       '(${discovered.length} from source, ${canonical.length} canonical)',
     );
+
+    if (_settingsRepo != null) {
+      await _settingsRepo!.setString(
+        AppConstants.settingsLastCatalogSyncAt,
+        DateTime.now().millisecondsSinceEpoch.toString(),
+      );
+    }
   }
 
   @Deprecated('Use syncFacilityCatalog')
@@ -204,14 +249,84 @@ class OttawaScraper {
 
   Future<SyncResult> syncAll({
     bool force = false,
+    bool isOnboarding = false,
+    SmartSyncPhase phase = SmartSyncPhase.background,
+    SyncLocationContext? anchor,
     SyncProgressCallback? onProgress,
   }) async {
-    await syncFacilityCatalog();
+    await syncFacilityCatalog(force: force && isOnboarding);
     _facilitySyncLogger.clear();
 
     final allFacilities = await _facilityRepo.getAllFacilities();
     final facilities =
         allFacilities.where((f) => f.hasSwimSchedule).toList();
+    final staleThresholdHours = await _staleThresholdHours();
+    final rotationIndex = await _rotationIndex();
+    final locationAnchor = anchor ?? SyncLocationContext.fallback();
+
+    final backoffIds = <String>{};
+    if (_backoffTracker != null) {
+      for (final facility in facilities) {
+        if (await _backoffTracker!.isInBackoff(facility.id)) {
+          backoffIds.add(facility.id);
+        }
+      }
+    }
+
+    final List<Facility> refreshTargets;
+    if (_smartSyncQueue != null) {
+      final batch = await _smartSyncQueue!.planBatch(
+        facilities: facilities,
+        phase: phase,
+        anchor: locationAnchor,
+        force: force,
+        staleThresholdHours: staleThresholdHours,
+        backoffFacilityIds: backoffIds,
+        rotationIndex: rotationIndex,
+      );
+      refreshTargets = facilities
+          .where((f) => batch.facilityIds.contains(f.id))
+          .toList()
+        ..sort((a, b) =>
+            batch.facilityIds.indexOf(a.id).compareTo(batch.facilityIds.indexOf(b.id)));
+
+      if (_settingsRepo != null && batch.facilityIds.isNotEmpty) {
+        final eligible = facilities.where((f) {
+          if (backoffIds.contains(f.id)) return false;
+          if (force) return true;
+          return !_isFacilityFresh(f, staleThresholdHours);
+        }).length;
+        final nextIndex = _smartSyncQueue!.nextRotationIndex(
+          currentIndex: rotationIndex,
+          selectedCount: batch.facilityIds.length,
+          eligibleCount: eligible > 0 ? eligible : batch.facilityIds.length,
+        );
+        await _settingsRepo!.setString(
+          AppConstants.settingsSyncRotationIndex,
+          nextIndex.toString(),
+        );
+      }
+
+      appLogger.i(
+        '[sync] Smart ${phase.name}: ${refreshTargets.length}/${facilities.length} '
+        'facilities queued (anchor=${locationAnchor.usesDeviceLocation ? "gps" : "fallback"}, '
+        'stale>${staleThresholdHours}h, backoff=${backoffIds.length})',
+      );
+    } else {
+      refreshTargets = _refreshPlanner.selectFacilitiesForRefresh(
+        facilities: facilities,
+        force: force,
+        isOnboarding: isOnboarding,
+        staleThresholdHours: staleThresholdHours,
+        rotationIndex: rotationIndex,
+        backoffFacilityIds: backoffIds,
+      );
+      appLogger.i(
+        '[sync] Partial refresh: ${refreshTargets.length}/${facilities.length} '
+        'facilities queued (stale>${staleThresholdHours}h, backoff=${backoffIds.length})',
+      );
+    }
+    final refreshIds = refreshTargets.map((f) => f.id).toSet();
     final syncStartedAt = DateTime.now().millisecondsSinceEpoch;
     final today = OttawaTime.todayDate();
     final scheduleCountBefore = await _scheduleRepo.countAllSchedules();
@@ -261,11 +376,23 @@ class OttawaScraper {
         pending: facilities.length - i - 1,
       );
 
-      final result = await _fetchAndParseFacility(
-        facility: facility,
-        force: force,
-        today: today,
-      );
+      final _FacilityPhaseResult result;
+      if (!refreshIds.contains(facility.id)) {
+        result = await _cacheOnlyFacilityResult(
+          facility: facility,
+          today: today,
+          reason: backoffIds.contains(facility.id)
+              ? 'Backoff active — skipped network fetch'
+              : 'Cache fresh — skipped network fetch',
+        );
+      } else {
+        result = await _fetchAndParseFacility(
+          facility: facility,
+          force: force,
+          today: today,
+          staleThresholdHours: staleThresholdHours,
+        );
+      }
       phaseResults.add(result);
       _facilitySyncLogger.record(result.diagnostic);
 
@@ -457,10 +584,76 @@ class OttawaScraper {
     return 'Sync completed normally.';
   }
 
+  Future<int> _staleThresholdHours() async {
+    if (_settingsRepo == null) {
+      return SyncRateLimitPolicy.defaultStaleThresholdHours;
+    }
+    final raw = await _settingsRepo!.getString(
+      AppConstants.settingsStaleThresholdHours,
+    );
+    final parsed = int.tryParse(raw ?? '');
+    if (parsed == null) return SyncRateLimitPolicy.defaultStaleThresholdHours;
+    return parsed.clamp(
+      SyncRateLimitPolicy.minStaleThresholdHours,
+      SyncRateLimitPolicy.maxStaleThresholdHours,
+    );
+  }
+
+  Future<int> _rotationIndex() async {
+    if (_settingsRepo == null) return 0;
+    final raw = await _settingsRepo!.getString(
+      AppConstants.settingsSyncRotationIndex,
+    );
+    return int.tryParse(raw ?? '') ?? 0;
+  }
+
+  bool _isFacilityFresh(Facility facility, int staleThresholdHours) {
+    if (facility.syncStatus == FacilitySyncStatus.failed) return false;
+    if (facility.syncStatus == FacilitySyncStatus.stale) return false;
+    final lastOk = facility.lastSuccessfulSyncAt;
+    if (lastOk == null) return false;
+    final staleBefore = DateTime.now()
+        .subtract(Duration(hours: staleThresholdHours))
+        .millisecondsSinceEpoch;
+    return lastOk >= staleBefore;
+  }
+
+  Future<_FacilityPhaseResult> _cacheOnlyFacilityResult({
+    required Facility facility,
+    required String today,
+    required String reason,
+  }) async {
+    final existingCount =
+        await _scheduleRepo.countSchedulesForFacility(facility.id);
+    final kind = existingCount > 0
+        ? FacilitySyncFailureKind.cachedFallback
+        : FacilitySyncFailureKind.unchanged;
+    final diag = FacilitySyncDiagnostic(
+      facilityId: facility.id,
+      facilityName: facility.name,
+      kind: kind,
+      sessionsParsed: existingCount,
+      existingCachedSessions: existingCount,
+      detail: reason,
+      fetchTier: 'CACHE_ONLY',
+    );
+    return _FacilityPhaseResult(
+      facility: facility,
+      fetchOutcome: existingCount > 0
+          ? FacilityFetchOutcome.staleCached
+          : FacilityFetchOutcome.unchanged,
+      validationClass: FacilityValidationClass.valid,
+      existingCount: existingCount,
+      diagnostic: diag,
+      countsAsSuccess: true,
+    );
+  }
+
   Future<_FacilityPhaseResult> _fetchAndParseFacility({
     required Facility facility,
     required bool force,
     required String today,
+    required int staleThresholdHours,
   }) async {
     final start = DateTime.now();
     final existingCount =
@@ -501,10 +694,29 @@ class OttawaScraper {
     }
 
     try {
+      if (!force && _isFacilityFresh(facility, staleThresholdHours)) {
+        return _cacheOnlyFacilityResult(
+          facility: facility,
+          today: today,
+          reason: 'Within $staleThresholdHours h freshness window',
+        );
+      }
+
+      if (_backoffTracker != null &&
+          await _backoffTracker!.isInBackoff(facility.id)) {
+        final retryAfter = await _backoffTracker!.retryAfter(facility.id);
+        return _cacheOnlyFacilityResult(
+          facility: facility,
+          today: today,
+          reason: 'Backoff until ${retryAfter?.toIso8601String() ?? 'later'}',
+        );
+      }
+
       final fetch = await _tieredFetcher.fetch(
         url: requestUrl,
         facilityId: facility.id,
         existingCachedSessions: existingCount,
+        escalateToBrowser: false,
       );
       final durationMs = DateTime.now().difference(start).inMilliseconds;
       final tierTrail = fetch.tierTrail;
@@ -536,9 +748,13 @@ class OttawaScraper {
       }
 
       if (fetch.outcome == TieredFetchOutcome.blocked) {
+        await _backoffTracker?.recordBlock(facility.id);
         final diag = diagnostic(
-          kind: FacilitySyncFailureKind.blockedBotChallenge,
+          kind: existingCount > 0
+              ? FacilitySyncFailureKind.cachedFallback
+              : FacilitySyncFailureKind.blockedBotChallenge,
           httpStatus: fetch.httpStatus ?? 200,
+          sessionsParsed: existingCount,
           detail: fetch.errorMessage ?? tierTrail,
           fetchTier: 'BLOCKED_ALL_TIERS',
           tierTrail: tierTrail,
@@ -551,42 +767,56 @@ class OttawaScraper {
         );
         return _FacilityPhaseResult(
           facility: facility,
-          fetchOutcome: FacilityFetchOutcome.blocked,
+          fetchOutcome: existingCount > 0
+              ? FacilityFetchOutcome.staleCached
+              : FacilityFetchOutcome.blocked,
           validationClass: FacilityValidationClass.failed,
           existingCount: existingCount,
           diagnostic: diag,
           durationMs: durationMs,
+          countsAsSuccess: existingCount > 0,
         );
       }
 
       if (fetch.outcome == TieredFetchOutcome.httpError) {
         final status = fetch.httpStatus ?? 0;
-        final kind = status == 403
-            ? FacilitySyncFailureKind.blockedBotChallenge
+        final isBotStatus = status == 403 || status == 429;
+        if (isBotStatus) {
+          await _backoffTracker?.recordBlock(facility.id);
+        }
+        final kind = isBotStatus
+            ? (existingCount > 0
+                ? FacilitySyncFailureKind.cachedFallback
+                : FacilitySyncFailureKind.blockedBotChallenge)
             : FacilitySyncFailureKind.networkFailure;
         final diag = diagnostic(
           kind: kind,
           httpStatus: status == 0 ? null : status,
+          sessionsParsed: existingCount,
           detail: fetch.errorMessage,
           tierTrail: tierTrail,
         );
         await _logScrape(
           facilityId: facility.id,
-          status: kind == FacilitySyncFailureKind.blockedBotChallenge
-              ? 'blocked'
-              : 'error',
+          status: isBotStatus ? 'blocked' : 'error',
           message: diag.logMessage(),
           durationMs: durationMs,
         );
+        final outcome = isBotStatus
+            ? (existingCount > 0
+                ? FacilityFetchOutcome.staleCached
+                : FacilityFetchOutcome.blocked)
+            : (existingCount > 0
+                ? FacilityFetchOutcome.staleCached
+                : FacilityFetchOutcome.httpError);
         return _FacilityPhaseResult(
           facility: facility,
-          fetchOutcome: status == 403
-              ? FacilityFetchOutcome.blocked
-              : FacilityFetchOutcome.httpError,
+          fetchOutcome: outcome,
           validationClass: FacilityValidationClass.failed,
           existingCount: existingCount,
           diagnostic: diag,
           durationMs: durationMs,
+          countsAsSuccess: existingCount > 0,
         );
       }
 
@@ -631,13 +861,17 @@ class OttawaScraper {
       // Hard block check BEFORE parser — never parse challenge HTML.
       final blockedCheck = BlockedPageDetector.check(html);
       if (blockedCheck.isBlocked) {
+        await _backoffTracker?.recordBlock(facility.id);
         final diag = diagnostic(
-          kind: FacilitySyncFailureKind.blockedBotChallenge,
+          kind: existingCount > 0
+              ? FacilitySyncFailureKind.cachedFallback
+              : FacilitySyncFailureKind.blockedBotChallenge,
           httpStatus: response.statusCode,
           finalUrl: finalUrl,
           contentType: contentType,
           blockedSummary: blockedCheck.summary,
           fingerprint: fingerprint,
+          sessionsParsed: existingCount,
           detail: blockedCheck.signaturesMatched.join(', '),
           fetchTier: fetchTierLabel,
           tierTrail: tierTrail,
@@ -651,11 +885,14 @@ class OttawaScraper {
         );
         return _FacilityPhaseResult(
           facility: facility,
-          fetchOutcome: FacilityFetchOutcome.blocked,
+          fetchOutcome: existingCount > 0
+              ? FacilityFetchOutcome.staleCached
+              : FacilityFetchOutcome.blocked,
           validationClass: FacilityValidationClass.failed,
           existingCount: existingCount,
           diagnostic: diag,
           durationMs: durationMs,
+          countsAsSuccess: existingCount > 0,
         );
       }
 
@@ -680,13 +917,16 @@ class OttawaScraper {
 
       if (entries.isEmpty) {
         final diag = diagnostic(
-          kind: FacilitySyncFailureKind.parseEmpty,
+          kind: existingCount > 0
+              ? FacilitySyncFailureKind.cachedFallback
+              : FacilitySyncFailureKind.parseEmpty,
           httpStatus: response.statusCode,
           finalUrl: finalUrl,
           contentType: contentType,
           blockedSummary: blockedCheck.summary,
           fingerprint: fingerprint,
           swimMentions: swimMentions,
+          sessionsParsed: existingCount,
           detail: 'Parser returned 0 sessions; swimMentions=$swimMentions',
           fetchTier: fetchTierLabel,
           tierTrail: tierTrail,
@@ -701,7 +941,9 @@ class OttawaScraper {
         );
         return _FacilityPhaseResult(
           facility: facility,
-          fetchOutcome: FacilityFetchOutcome.parseEmpty,
+          fetchOutcome: existingCount > 0
+              ? FacilityFetchOutcome.staleCached
+              : FacilityFetchOutcome.parseEmpty,
           validationClass: FacilityValidationClass.failed,
           existingCount: existingCount,
           entries: entries,
@@ -709,6 +951,7 @@ class OttawaScraper {
           snapshotPath: snapshotPath,
           diagnostic: diag,
           durationMs: durationMs,
+          countsAsSuccess: existingCount > 0,
         );
       }
 
@@ -782,6 +1025,8 @@ class OttawaScraper {
         fetchTier: fetchTierLabel,
         tierTrail: tierTrail,
       );
+
+      await _backoffTracker?.recordSuccess(facility.id);
 
       return _FacilityPhaseResult(
         facility: facility,
@@ -859,8 +1104,7 @@ class OttawaScraper {
   }
 
   Future<void> _commitFacility(_CommitCandidate candidate, String today) async {
-    await _scheduleRepo.deleteSchedulesForFacility(candidate.facility.id);
-    await _scheduleRepo.upsertSchedules(
+    await _scheduleRepo.replaceSchedulesForFacility(
       candidate.facility.id,
       candidate.entries,
     );

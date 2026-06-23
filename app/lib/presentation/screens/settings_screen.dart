@@ -67,7 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Tile caching failed: $e')),
+          SnackBar(content: Text('Could not cache map tiles. Try again when online.')),
         );
       }
     } finally {
@@ -107,14 +107,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   color: Theme.of(context).colorScheme.onErrorContainer,
                 ),
                 title: Text(
-                  '$errors scrape error${errors == 1 ? '' : 's'} — schedules may be missing',
+                  'Some schedules may be outdated',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onErrorContainer,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 subtitle: Text(
-                  'See Diagnostics for details. Try Manual Sync when online.',
+                  'Schedules are updating in the background. Try Manual Sync when online.',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onErrorContainer,
                   ),

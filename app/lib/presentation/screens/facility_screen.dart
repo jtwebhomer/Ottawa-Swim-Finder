@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/ottawa_time.dart';
+import '../../data/services/facility_interaction_service.dart';
 import '../../di/injection.dart';
 import '../../domain/entities/facility.dart';
 import '../../domain/entities/facility_type.dart';
@@ -32,6 +35,7 @@ class _FacilityScreenState extends State<FacilityScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(getIt<FacilityInteractionService>().recordView(widget.facilityId));
     _load();
   }
 
@@ -130,13 +134,16 @@ class _FacilityScreenState extends State<FacilityScreen> {
           if (facility.hasSwimSchedule) ...[
           Row(
             children: [
-              Chip(label: Text('Occupancy: $_occupancy')),
-              const Spacer(),
+              Flexible(
+                child: Chip(label: Text('Occupancy: $_occupancy')),
+              ),
+              const SizedBox(width: 8),
               if (facility.latitude != null && facility.longitude != null)
                 NavigationLaunchButton(
                   latitude: facility.latitude!,
                   longitude: facility.longitude!,
                   title: facility.name,
+                  facilityId: facility.id,
                 ),
             ],
           ),
@@ -154,9 +161,9 @@ class _FacilityScreenState extends State<FacilityScreen> {
           Text('Today', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           if (remaining.isEmpty && _todaySchedules.isEmpty)
-            const Text('No swims scheduled for today')
+            const Text('No swims available right now')
           else if (remaining.isEmpty)
-            const Text('No swims remaining today')
+            const Text('No swims remaining today — try Tonight or Tomorrow')
           else
             ...remaining.map(
               (s) => ScheduleSessionCard(

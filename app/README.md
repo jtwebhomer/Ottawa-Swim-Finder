@@ -1,17 +1,26 @@
-# ottawa_swim_finder
+# Ottawa Swim Finder (Flutter app)
 
-A new Flutter project.
+Android client for [Ottawa Swim Finder](https://github.com/jtwebhomer/Ottawa-Swim-Finder).
 
-## Getting Started
+## Quick start
 
-This project is a starting point for a Flutter application.
+```bash
+flutter pub get
+flutter run
+```
 
-A few resources to get you started if this is your first Flutter project:
+## Release build
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```bash
+flutter build apk --release
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+APK output: `build/app/outputs/flutter-apk/app-release.apk`
+
+## Tests
+
+```bash
+flutter test
+```
+
+See the [root README](../README.md) for download links, features, and architecture.

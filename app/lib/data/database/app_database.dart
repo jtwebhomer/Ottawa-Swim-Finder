@@ -6,7 +6,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _dbName = 'ottawa_swim_finder.db';
-  static const _dbVersion = 5;
+  static const _dbVersion = 7;
 
   Database? _db;
 
@@ -127,6 +127,47 @@ class AppDatabase {
         'CREATE INDEX idx_facilities_type ON facilities(facility_type)');
 
     await _createSavedSwimsTable(db);
+    await _createFacilityInteractionsTable(db);
+    await _createHabitEventsTable(db);
+  }
+
+  Future<void> _createHabitEventsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE habit_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        facility_id TEXT NOT NULL,
+        recorded_at INTEGER NOT NULL,
+        action_type TEXT NOT NULL,
+        weight REAL NOT NULL,
+        day_of_week INTEGER NOT NULL,
+        hour_of_day INTEGER NOT NULL,
+        time_bucket TEXT NOT NULL,
+        swim_start_time TEXT,
+        FOREIGN KEY (facility_id) REFERENCES facilities(id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_habit_events_recorded ON habit_events(recorded_at)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_habit_events_facility ON habit_events(facility_id, recorded_at)',
+    );
+  }
+
+  Future<void> _createFacilityInteractionsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE facility_interactions (
+        facility_id TEXT PRIMARY KEY,
+        view_count INTEGER NOT NULL DEFAULT 0,
+        last_viewed_at INTEGER,
+        saved_count INTEGER NOT NULL DEFAULT 0,
+        swim_detail_clicks INTEGER NOT NULL DEFAULT 0,
+        impression_count INTEGER NOT NULL DEFAULT 0,
+        ignore_count INTEGER NOT NULL DEFAULT 0,
+        last_ignored_at INTEGER,
+        FOREIGN KEY (facility_id) REFERENCES facilities(id)
+      )
+    ''');
   }
 
   Future<void> _createSavedSwimsTable(Database db) async {
@@ -201,6 +242,12 @@ class AppDatabase {
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_facilities_type ON facilities(facility_type)',
       );
+    }
+    if (oldVersion < 6) {
+      await _createFacilityInteractionsTable(db);
+    }
+    if (oldVersion < 7) {
+      await _createHabitEventsTable(db);
     }
   }
 

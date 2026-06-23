@@ -124,14 +124,26 @@ class SyncSafetyGuard {
     required int errors,
     required int scheduleCountAfter,
     required int scheduleCountBefore,
+    int blocked = 0,
+    int rejected = 0,
     bool globalRejected = false,
   }) {
     if (globalRejected) return false;
-    if (errors == 0) return true;
+
+    // At least one facility received a fresh commit.
+    if (updated > 0) return true;
+
+    // Bot-block or deferred facilities with no live refresh — not a healthy sync.
+    if (blocked > 0 && updated == 0) return false;
+
+    if (errors == 0) {
+      if (rejected > 0 && updated == 0) return false;
+      return scheduleCountAfter > 0;
+    }
+
     if (scheduleCountAfter >= scheduleCountBefore && scheduleCountAfter > 0) {
       return true;
     }
-    if (updated > 0 && scheduleCountAfter > 0) return true;
     if (errors < totalFacilities && scheduleCountAfter > 0) return true;
     return false;
   }
