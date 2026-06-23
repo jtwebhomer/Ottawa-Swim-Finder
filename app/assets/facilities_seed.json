@@ -1,0 +1,24 @@
+{
+  "facilities": [
+    {"id": "brewer-pool-and-arena", "name": "Brewer Pool and Arena", "address": "100 Brewer Way", "latitude": 45.3889, "longitude": -75.6889, "region": "central"},
+    {"id": "champagne-fitness-centre", "name": "Champagne Fitness Centre", "address": "321 King Edward Avenue", "latitude": 45.4290, "longitude": -75.6780, "region": "central"},
+    {"id": "jack-purcell-community-centre", "name": "Jack Purcell Community Centre", "address": "320 Jack Purcell Lane", "latitude": 45.4180, "longitude": -75.6890, "region": "central"},
+    {"id": "lowertown-community-centre-and-pool", "name": "Lowertown Community Centre and Pool", "address": "40 Cobourg Street", "latitude": 45.4280, "longitude": -75.6880, "region": "central"},
+    {"id": "plant-recreation-centre", "name": "Plant Recreation Centre", "address": "930 Somerset Street West", "latitude": 45.4090, "longitude": -75.6990, "region": "central"},
+    {"id": "bob-macquarrie-recreation-complex-orleans", "name": "Bob MacQuarrie Recreation Complex - Orléans", "address": "1490 Youville Drive", "latitude": 45.4760, "longitude": -75.5160, "region": "east"},
+    {"id": "canterbury-recreation-complex", "name": "Canterbury Recreation Complex", "address": "2185 Arch Street", "latitude": 45.3520, "longitude": -75.6680, "region": "east"},
+    {"id": "francois-dupuis-recreation-centre", "name": "François Dupuis Recreation Centre", "address": "2263 Portobello Boulevard", "latitude": 45.4670, "longitude": -75.5120, "region": "east"},
+    {"id": "ray-friel-recreation-complex", "name": "Ray Friel Recreation Complex", "address": "1585 Tenth Line Road", "latitude": 45.4670, "longitude": -75.4680, "region": "east"},
+    {"id": "splash-wave-pool", "name": "Splash Wave Pool", "address": "2040 Ogilvie Road", "latitude": 45.4360, "longitude": -75.5980, "region": "east"},
+    {"id": "st-laurent-complex", "name": "St. Laurent Complex", "address": "525 Côté Street", "latitude": 45.4380, "longitude": -75.6380, "region": "east"},
+    {"id": "deborah-anne-kirwan-pool", "name": "Deborah Anne Kirwan Pool", "address": "1300 Kitchener Avenue", "latitude": 45.3580, "longitude": -75.6480, "region": "south"},
+    {"id": "sawmill-creek-community-centre-and-pool", "name": "Sawmill Creek Community Centre and Pool", "address": "3380 D'Aoust Avenue", "latitude": 45.3680, "longitude": -75.6980, "region": "south"},
+    {"id": "nepean-sportsplex", "name": "Nepean Sportsplex", "address": "1701 Woodroffe Avenue", "latitude": 45.3380, "longitude": -75.7580, "region": "south"},
+    {"id": "walter-baker-sports-centre", "name": "Walter Baker Sports Centre", "address": "100 Malvern Drive", "latitude": 45.2780, "longitude": -75.7580, "region": "south"},
+    {"id": "cardelrec-recreation-complex-goulbourn", "name": "CARDELREC Recreation Complex Goulbourn", "address": "1500 Shea Road", "latitude": 45.2580, "longitude": -75.9180, "region": "west"},
+    {"id": "kanata-leisure-centre-and-wave-pool", "name": "Kanata Leisure Centre and Wave Pool", "address": "70 Aird Place", "latitude": 45.3080, "longitude": -75.9180, "region": "west"},
+    {"id": "minto-recreation-complex-barrhaven", "name": "Minto Recreation Complex - Barrhaven", "address": "3500 Cambrian Road", "latitude": 45.2780, "longitude": -75.7580, "region": "west"},
+    {"id": "pinecrest-recreation-complex", "name": "Pinecrest Recreation Complex", "address": "2250 Torquay Avenue", "latitude": 45.3480, "longitude": -75.7580, "region": "west"},
+    {"id": "richcraft-recreation-complex-kanata", "name": "Richcraft Recreation Complex-Kanata", "address": "4101 Innovation Drive", "latitude": 45.2980, "longitude": -75.8980, "region": "west"}
+  ]
+}

@@ -1,0 +1,45 @@
+name: ottawa_swim_finder
+description: Aggregate Ottawa public pool swim schedules into a searchable offline app.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  http: ^1.2.2
+  html: ^0.15.4
+  provider: ^6.1.2
+  get_it: ^7.7.0
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  geolocator: ^13.0.1
+  url_launcher: ^6.3.0
+  intl: ^0.19.0
+  workmanager: ^0.9.0
+  flutter_local_notifications: ^17.2.3
+  shared_preferences: ^2.3.2
+  crypto: ^3.0.5
+  collection: ^1.18.0
+  logger: ^2.4.0
+  flutter_map_tile_caching: ^10.0.0
+  map_launcher: ^4.5.0
+  flutter_map_marker_cluster_2: ^1.0.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  sqflite_common_ffi: ^2.3.3
+  mocktail: ^1.0.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/facilities_seed.json

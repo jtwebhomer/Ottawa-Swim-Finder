@@ -1,0 +1,25 @@
+# IDE
+.idea/
+*.iml
+
+# Local databases and debug artifacts
+device_db.sqlite
+*.sqlite-journal
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+scraper/output.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flutter/Dart (app subfolder has more; these catch root-level artifacts)
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/build/
+**/coverage/
