@@ -1,8 +1,8 @@
-import '../../core/constants/app_constants.dart';
+import 'facility_inclusion_audit_service.dart';
 import '../../core/logging/app_logger.dart';
 import '../../core/utils/ottawa_time.dart';
 import '../../domain/entities/facility.dart';
-import '../../domain/entities/schedule_entry.dart';
+import '../../domain/entities/facility_inclusion_trace.dart';
 import '../../domain/repositories/repositories.dart';
 import '../../data/scraper/parsers/category_normalizer.dart';
 
@@ -34,10 +34,15 @@ class ScheduleValidationWarning {
 
 /// Audits stored schedules and detects display mismatches.
 class ScheduleValidationService {
-  ScheduleValidationService(this._scheduleRepo, this._facilityRepo);
+  ScheduleValidationService(
+    this._scheduleRepo,
+    this._facilityRepo, {
+    FacilityInclusionAuditService? inclusionAuditService,
+  }) : _inclusionAudit = inclusionAuditService;
 
   final ScheduleRepository _scheduleRepo;
   final FacilityRepository _facilityRepo;
+  final FacilityInclusionAuditService? _inclusionAudit;
 
   Future<List<RawNameAuditEntry>> auditRawNames() async {
     final today = OttawaTime.todayDate();
@@ -119,6 +124,36 @@ class ScheduleValidationService {
       }
 
       for (final entry in allToday) {
+        if (entry.dateRangeStart != null &&
+            entry.dateRangeEnd != null &&
+            entry.date != null &&
+            (entry.date!.compareTo(entry.dateRangeStart!) < 0 ||
+                entry.date!.compareTo(entry.dateRangeEnd!) > 0)) {
+          warnings.add(ScheduleValidationWarning(
+            code: 'outside_season',
+            facilityId: facility.id,
+            message:
+                '${facility.name}: ${entry.date} outside season ${entry.dateRangeStart}–${entry.dateRangeEnd}',
+          ));
+          break;
+        }
+      }
+
+      for (final entry in allToday) {
+        if (entry.date == null || entry.date!.isEmpty) {
+          warnings.add(ScheduleValidationWarning(
+            code: 'missing_date',
+            facilityId: facility.id,
+            message: '${facility.name}: session missing date (${entry.rawCategory})',
+          ));
+        }
+        if (entry.startTime.isEmpty || entry.endTime.isEmpty) {
+          warnings.add(ScheduleValidationWarning(
+            code: 'missing_time',
+            facilityId: facility.id,
+            message: '${facility.name}: session missing start/end time',
+          ));
+        }
         if (entry.startTime.compareTo(entry.endTime) >= 0) {
           warnings.add(ScheduleValidationWarning(
             code: 'invalid_time',
@@ -139,6 +174,38 @@ class ScheduleValidationService {
         }
       }
 
+      final futureForFacility = await _scheduleRepo.countFutureSessionsForFacility(
+        facility.id,
+        today,
+      );
+      if (futureForFacility > 100) {
+        final next14 = await _countSessionsInRange(
+          facility.id,
+          today,
+          OttawaTime.formatDate(DateTime.now().add(const Duration(days: 13))),
+        );
+        if (next14 == 0) {
+          warnings.add(ScheduleValidationWarning(
+            code: 'future_gap',
+            facilityId: facility.id,
+            message:
+                '${facility.name}: $futureForFacility future sessions but none in next 14 days',
+          ));
+        }
+      }
+
+      if (allToday.isEmpty && futureForFacility == 0) {
+        final total = await _scheduleRepo.countSchedulesForFacility(facility.id);
+        if (total > 0) {
+          warnings.add(ScheduleValidationWarning(
+            code: 'no_future_swims',
+            facilityId: facility.id,
+            message:
+                '${facility.name}: $total stored sessions but none today or future',
+          ));
+        }
+      }
+
       if (allToday.isEmpty) {
         final anyFuture = await _scheduleRepo.countSchedulesForFacility(facility.id);
         if (anyFuture > 0) {
@@ -150,12 +217,82 @@ class ScheduleValidationService {
           ));
         }
       }
+
+      final tomorrow = OttawaTime.formatDate(
+        DateTime.now().add(const Duration(days: 1)),
+      );
+      final tomorrowCount = (await _scheduleRepo.getTimelineForDate(
+        tomorrow,
+        facilityId: facility.id,
+      ))
+          .length;
+      final storedFuture = await _scheduleRepo.searchSchedules(
+        facilityId: facility.id,
+        date: tomorrow,
+      );
+      if (storedFuture.isNotEmpty && tomorrowCount == 0) {
+        warnings.add(ScheduleValidationWarning(
+          code: 'future_hidden',
+          facilityId: facility.id,
+          message:
+              '${facility.name}: ${storedFuture.length} sessions on $tomorrow not returned by timeline query',
+        ));
+      }
+    }
+
+    final todayStr = OttawaTime.todayDate();
+    final futureTotal = await _scheduleRepo.countFutureSessions(todayStr);
+    if (futureTotal == 0) {
+      final all = await _scheduleRepo.countAllSchedules();
+      if (all > 50) {
+        warnings.add(const ScheduleValidationWarning(
+          code: 'no_future_sessions',
+          message:
+              'Database has sessions but none dated after today — check parser expansion',
+        ));
+      }
+      if (all > 0 && all < 100) {
+        warnings.add(ScheduleValidationWarning(
+          code: 'low_session_count',
+          message: 'Suspiciously low session count: $all total rows',
+        ));
+      }
     }
 
     if (warnings.isNotEmpty) {
       appLogger.w('[schedule-validation] ${warnings.length} warning(s)');
     }
     return warnings;
+  }
+
+  Future<int> _countSessionsInRange(
+    String facilityId,
+    String fromDate,
+    String toDate,
+  ) async {
+    var total = 0;
+    var current = DateTime.parse(fromDate);
+    final end = DateTime.parse(toDate);
+    while (!current.isAfter(end)) {
+      final d = OttawaTime.formatDate(current);
+      final rows = await _scheduleRepo.searchSchedules(
+        facilityId: facilityId,
+        date: d,
+      );
+      total += rows.length;
+      current = current.add(const Duration(days: 1));
+    }
+    return total;
+  }
+
+  Future<FacilityCatalogAudit> runFacilityInclusionAudit({
+    List<Facility>? uiFacilities,
+  }) async {
+    final audit = _inclusionAudit;
+    if (audit == null) {
+      throw StateError('FacilityInclusionAuditService not configured');
+    }
+    return audit.runAudit(uiFacilities: uiFacilities);
   }
 }
 

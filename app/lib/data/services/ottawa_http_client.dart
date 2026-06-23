@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../core/constants/http_constants.dart';
 import '../../core/logging/app_logger.dart';
-import '../scraper/ottawa_scraper.dart';
+import 'scrape_http_exception.dart';
 
 /// Fetches Ottawa.ca pages with browser-like headers, retries, and throttling.
 class OttawaHttpClient {

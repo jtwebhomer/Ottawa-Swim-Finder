@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ottawa_swim_finder/core/constants/sync_thresholds.dart';
 import 'package:ottawa_swim_finder/data/services/sync_safety_guard.dart';
 import 'package:ottawa_swim_finder/domain/entities/schedule_entry.dart';
 
@@ -45,5 +46,54 @@ void main() {
       httpStatus: 403,
     );
     expect(decision.allowWrite, isFalse);
+  });
+
+  test('rejects facility session drop below threshold', () {
+    final decision = guard.evaluate(
+      facilityId: 'test',
+      newEntries: List.generate(
+        5,
+        (i) => ScheduleEntry(
+          facilityId: 'test',
+          category: 'lane_swim',
+          scheduleType: 'expanded',
+          date: '2026-06-22',
+          startTime: '18:00',
+          endTime: '19:00',
+        ),
+      ),
+      existingEntryCount: 100,
+      htmlSwimMentions: 20,
+      httpStatus: 200,
+    );
+    expect(decision.allowWrite, isFalse);
+  });
+
+  test('rejects global sync when session count collapses', () {
+    final decision = guard.evaluateGlobalSync(
+      countBefore: 1200,
+      projectedCountAfter: 40,
+      futureBefore: 900,
+      projectedFutureAfter: 30,
+      facilitiesParsed: 20,
+      totalFacilities: 20,
+    );
+    expect(decision.allowWrite, isFalse);
+    expect(decision.reason, contains('incomplete'));
+  });
+
+  test('allows global sync within ratio thresholds', () {
+    final baseline = SyncThresholds.minBaselineSessionCount + 100;
+    final projected =
+        (baseline * SyncThresholds.minGlobalSessionRatio + 10).round();
+    final decision = guard.evaluateGlobalSync(
+      countBefore: baseline,
+      projectedCountAfter: projected,
+      futureBefore: 500,
+      projectedFutureAfter: 200,
+      facilitiesParsed: 20,
+      totalFacilities: 20,
+    );
+    expect(decision.allowWrite, isTrue);
   });
 }

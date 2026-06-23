@@ -57,6 +57,31 @@ void main() {
     });
   });
 
+  group('ScheduleParser date range', () {
+    test('parses Jack Purcell season caption April 27 to June 28', () {
+      final parser = ScheduleParser();
+      final sample = File(
+        r'C:\Users\Jtcra\ottawa_swim_finder\scraper\jack_purcell_sample.html',
+      );
+      if (!sample.existsSync()) return;
+
+      final entries = parser.parse(
+        sample.readAsStringSync(),
+        'jack-purcell-community-centre',
+      );
+      expect(entries, isNotEmpty);
+
+      final futureDates = entries
+          .where((e) => e.date != null && e.date!.compareTo(OttawaTime.todayDate()) > 0)
+          .toList();
+      expect(
+        futureDates,
+        isNotEmpty,
+        reason: 'Season expansion should produce future dated sessions',
+      );
+    });
+  });
+
   group('Jack Purcell live HTML', () {
     test('parses evening swims for today when HTML sample exists', () {
       final sample = File(

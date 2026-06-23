@@ -7,8 +7,10 @@ class NotificationService {
   NotificationService(this._settingsRepo);
 
   final SettingsRepository _settingsRepo;
-  final _plugin = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+
+  FlutterLocalNotificationsPlugin get plugin => _plugin;
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -16,6 +18,12 @@ class NotificationService {
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const settings = InitializationSettings(android: android);
     await _plugin.initialize(settings);
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+
     _initialized = true;
   }
 

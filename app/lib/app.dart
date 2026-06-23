@@ -2,17 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme/app_theme.dart';
-import 'core/logging/app_logger.dart';
 import 'di/injection.dart';
 import 'presentation/providers/app_state.dart';
-import 'presentation/screens/debug_screen.dart';
-import 'presentation/screens/favorites_screen.dart';
+import 'presentation/screens/calendar_screen.dart';
+import 'presentation/screens/diagnostics_screen.dart';
 import 'presentation/screens/find_swim_screen.dart';
 import 'presentation/screens/home_screen.dart';
 import 'presentation/screens/map_screen.dart';
-import 'presentation/screens/search_screen.dart';
+import 'presentation/screens/onboarding_screen.dart';
+import 'presentation/screens/saved_screen.dart';
 import 'presentation/screens/settings_screen.dart';
-import 'presentation/screens/todays_swims_screen.dart';
+import 'data/services/app_version_service.dart';
+import 'data/services/connectivity_service.dart';
+import 'data/services/location_service.dart';
+import 'data/services/saved_swim_reminder_service.dart';
+import 'data/services/schedule_validation_service.dart';
+import 'data/services/swim_query_service.dart';
+import 'data/services/sync_service.dart';
+import 'domain/repositories/repositories.dart';
+import 'domain/usecases/swim_usecases.dart';
 
 class OttawaSwimFinderApp extends StatelessWidget {
   const OttawaSwimFinderApp({super.key});
@@ -23,35 +31,47 @@ class OttawaSwimFinderApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(
           create: (_) => AppState(
-            facilityRepo: getIt(),
-            scheduleRepo: getIt(),
-            scrapeLogRepo: getIt(),
-            settingsRepo: getIt(),
-            syncService: getIt(),
-            locationService: getIt(),
-            searchUseCase: getIt(),
-            nearestUseCase: getIt(),
-            pinStatusUseCase: getIt(),
-            validationService: getIt(),
+            facilityRepo: getIt<FacilityRepository>(),
+            scheduleRepo: getIt<ScheduleRepository>(),
+            scrapeLogRepo: getIt<ScrapeLogRepository>(),
+            settingsRepo: getIt<SettingsRepository>(),
+            savedSwimRepo: getIt<SavedSwimRepository>(),
+            syncService: getIt<SyncService>(),
+            locationService: getIt<LocationService>(),
+            searchUseCase: getIt<SearchSchedulesUseCase>(),
+            pinStatusUseCase: getIt<FacilityPinStatusUseCase>(),
+            validationService: getIt<ScheduleValidationService>(),
+            swimQueryService: getIt<SwimQueryService>(),
+            versionService: getIt<AppVersionService>(),
+            connectivityService: getIt<ConnectivityService>(),
+            reminderService: getIt<SavedSwimReminderService>(),
           )..initialize().catchError((Object error, StackTrace stackTrace) {
-            appLogger.e(
-              'App startup failed',
-              error: error,
-              stackTrace: stackTrace,
-            );
-          }),
+              // Logged in main.dart FlutterError handler / app logger.
+            }),
         ),
       ],
       child: MaterialApp(
         title: 'Ottawa Swim Finder',
         theme: AppTheme.light(),
-        home: const MainShell(),
+        home: const AppBootstrap(),
         routes: {
-          '/debug': (_) => const DebugScreen(),
-          '/find-swim': (_) => const FindSwimScreen(),
+          '/diagnostics': (_) => const DiagnosticsScreen(),
         },
       ),
     );
+  }
+}
+
+class AppBootstrap extends StatelessWidget {
+  const AppBootstrap({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    if (state.needsOnboarding) {
+      return const OnboardingScreen();
+    }
+    return const MainShell();
   }
 }
 
@@ -67,10 +87,10 @@ class _MainShellState extends State<MainShell> {
 
   static const _screens = [
     HomeScreen(),
+    FindSwimScreen(),
+    CalendarScreen(),
     MapScreen(),
-    SearchScreen(),
-    TodaysSwimsScreen(),
-    FavoritesScreen(),
+    SavedScreen(),
     SettingsScreen(),
   ];
 
@@ -80,18 +100,13 @@ class _MainShellState extends State<MainShell> {
       body: IndexedStack(index: _index, children: _screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) {
-          if (i == 3) {
-            context.read<AppState>().clearSearchResults();
-          }
-          setState(() => _index = i);
-        },
+        onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.search), label: 'Find Swim'),
+          NavigationDestination(icon: Icon(Icons.calendar_month), label: 'Calendar'),
           NavigationDestination(icon: Icon(Icons.map), label: 'Map'),
-          NavigationDestination(icon: Icon(Icons.search), label: 'Search'),
-          NavigationDestination(icon: Icon(Icons.today), label: 'Today'),
-          NavigationDestination(icon: Icon(Icons.favorite), label: 'Favs'),
+          NavigationDestination(icon: Icon(Icons.bookmark), label: 'Saved'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../data/services/map_tile_cache_service.dart';
 import '../../data/services/navigation_service.dart';
 import '../../di/injection.dart';
@@ -83,6 +85,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
+          if (!state.isOnline)
+            Card(
+              margin: const EdgeInsets.all(16),
+              color: Theme.of(context).colorScheme.tertiaryContainer,
+              child: const ListTile(
+                leading: Icon(Icons.cloud_off),
+                title: Text('Offline mode'),
+                subtitle: Text(
+                  'Schedules load from cache. Connect to sync updates.',
+                ),
+              ),
+            ),
           if (errors > 0)
             Card(
               margin: const EdgeInsets.all(16),
@@ -100,14 +114,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 subtitle: Text(
-                  'Tap Debug / Admin below for details. Try Manual Sync after updating.',
+                  'See Diagnostics for details. Try Manual Sync when online.',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onErrorContainer,
                   ),
                 ),
-                onTap: () => Navigator.pushNamed(context, '/debug'),
+                onTap: () => Navigator.pushNamed(context, '/diagnostics'),
               ),
             ),
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Sync Status', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  _syncRow('Last Updated', _formatTs(state.lastSuccessfulSyncAt)),
+                  _syncRow('Last Attempt', _formatTs(state.syncHealth?.lastSyncAt)),
+                  _syncRow('Data Age', state.dataAgeLabel),
+                  _syncRow('Auto Sync', 'Every ${AppConstants.syncIntervalDays} days'),
+                  _syncRow('App Version', state.appVersion),
+                  _syncRow(
+                    'Last Synced Version',
+                    state.lastSyncedAppVersion ?? '—',
+                  ),
+                  _syncRow('Future Sessions', '${state.futureSessionCount}'),
+                ],
+              ),
+            ),
+          ),
           ListTile(
             title: const Text('Manual Sync'),
             subtitle: Text(state.syncMessage ?? 'Pull latest schedules from ottawa.ca'),
@@ -184,15 +221,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(),
           ListTile(
-            title: const Text('Debug / Admin'),
-            subtitle: const Text('Scrape logs and error details'),
+            title: const Text('Diagnostics'),
+            subtitle: const Text('Schedule health and sync status'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.pushNamed(context, '/debug'),
+            onTap: () => Navigator.pushNamed(context, '/diagnostics'),
           ),
         ],
       ),
     );
   }
+
+  Widget _syncRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            SizedBox(width: 150, child: Text(label)),
+            Expanded(
+              child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+            ),
+          ],
+        ),
+      );
+
+  String _formatTs(DateTime? dt) =>
+      dt == null ? 'Never' : DateFormat.yMMMd().add_jm().format(dt);
 }
 
 class _NotificationToggle extends StatefulWidget {

@@ -2,14 +2,27 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../core/utils/ottawa_time.dart';
+import '../../data/services/app_version_service.dart';
+import '../../data/services/connectivity_service.dart';
 import '../../data/services/location_service.dart';
+import '../../data/services/saved_swim_reminder_service.dart';
 import '../../data/services/schedule_trace_logger.dart';
 import '../../data/services/schedule_validation_service.dart';
+import '../../data/services/swim_query_service.dart';
+import '../../data/services/parser_health_service.dart';
 import '../../data/services/sync_health_service.dart';
 import '../../data/services/sync_service.dart';
+import '../../data/scraper/ottawa_scraper.dart';
 import '../../domain/entities/facility.dart';
+import '../../domain/entities/saved_swim.dart';
 import '../../domain/entities/schedule_entry.dart';
 import '../../domain/entities/scrape_log.dart';
+import '../../data/services/facility_browse_helper.dart';
+import '../../domain/entities/facility_sync_diagnostic.dart';
+import '../../domain/entities/facility_inclusion_trace.dart';
+import '../../domain/entities/facility_type.dart';
+import '../../domain/entities/sync_progress.dart';
+import '../../domain/entities/sync_status.dart';
 import '../../domain/repositories/repositories.dart';
 import '../../domain/usecases/swim_usecases.dart';
 
@@ -19,88 +32,375 @@ class AppState extends ChangeNotifier {
     required ScheduleRepository scheduleRepo,
     required ScrapeLogRepository scrapeLogRepo,
     required SettingsRepository settingsRepo,
+    required SavedSwimRepository savedSwimRepo,
     required SyncService syncService,
     required LocationService locationService,
     required SearchSchedulesUseCase searchUseCase,
-    required GetNearestSwimUseCase nearestUseCase,
     required FacilityPinStatusUseCase pinStatusUseCase,
     required ScheduleValidationService validationService,
+    required SwimQueryService swimQueryService,
+    required AppVersionService versionService,
+    required ConnectivityService connectivityService,
+    required SavedSwimReminderService reminderService,
   })  : _facilityRepo = facilityRepo,
         _scheduleRepo = scheduleRepo,
         _scrapeLogRepo = scrapeLogRepo,
         _settingsRepo = settingsRepo,
+        _savedSwimRepo = savedSwimRepo,
         _syncService = syncService,
         _locationService = locationService,
         _searchUseCase = searchUseCase,
-        _nearestUseCase = nearestUseCase,
         _pinStatusUseCase = pinStatusUseCase,
-        _validationService = validationService;
+        _validationService = validationService,
+        _swimQueryService = swimQueryService,
+        _versionService = versionService,
+        _connectivity = connectivityService,
+        _reminderService = reminderService;
 
   final FacilityRepository _facilityRepo;
   final ScheduleRepository _scheduleRepo;
   final ScrapeLogRepository _scrapeLogRepo;
   final SettingsRepository _settingsRepo;
+  final SavedSwimRepository _savedSwimRepo;
   final SyncService _syncService;
   final LocationService _locationService;
   final SearchSchedulesUseCase _searchUseCase;
-  final GetNearestSwimUseCase _nearestUseCase;
   final FacilityPinStatusUseCase _pinStatusUseCase;
   final ScheduleValidationService _validationService;
+  final SwimQueryService _swimQueryService;
+  final AppVersionService _versionService;
+  final ConnectivityService _connectivity;
+  final SavedSwimReminderService _reminderService;
   final _traceLogger = ScheduleTraceLogger();
 
   bool isLoading = true;
   bool isSyncing = false;
+  SyncProgress? syncProgress;
+  SyncStatus? lastSyncStatus;
+  List<String> staleFacilityNames = [];
+  List<String> failedFacilityNames = [];
+  List<String> blockedFacilityNames = [];
+  String? lastSyncRootCause;
+  List<FacilitySyncDiagnostic> lastFacilityDiagnostics = [];
+  FacilityCatalogAudit? facilityCatalogAudit;
+  FacilityType? facilityTypeFilter;
+  FacilityScheduleMode? scheduleModeFilter;
+  Map<String, int> facilitySessionCounts = {};
+  bool needsOnboarding = false;
+  bool isOnline = true;
   String? syncMessage;
+  String onboardingStage = 'Checking…';
+  String appVersion = '—';
+  String? lastSyncedAppVersion;
+  String? syncAnomalyWarning;
+  bool showOnboardingSuccess = false;
+  int onboardingFacilityCount = 0;
+  int onboardingSessionCount = 0;
+  ParserHealthSnapshot? parserHealth;
+
   List<Facility> facilities = [];
   List<ScheduleEntry> searchResults = [];
   List<ScheduleEntry> activeSwims = [];
-  List<ScheduleEntry> timeline = [];
+  List<ScheduleEntry> homeUpcomingSwims = [];
+  HomeSwimSections homeSections = const HomeSwimSections(
+    swimmingNow: [],
+    startingSoon: [],
+    tonight: [],
+    tomorrow: [],
+  );
+  List<ScheduleEntry> calendarSwims = [];
+  List<SavedSwim> savedSwims = [];
   List<ScrapeLog> scrapeLogs = [];
   Map<String, PinStatus> pinStatuses = {};
-  Map<String, ScheduleEntry?> nearestHighlights = {};
   SyncHealthSnapshot? syncHealth;
   List<ScheduleValidationWarning> validationWarnings = [];
   List<RawNameAuditEntry> rawNameAudit = [];
+  List<String> unknownCategories = [];
+  int futureSessionCount = 0;
+  int totalSessionCount = 0;
+  int scrapeErrorCount = 0;
   double? userLat;
   double? userLng;
 
-  /// Today's swims for the Today tab — always from timeline, never search cache.
-  List<ScheduleEntry> get todaysSwims => timeline;
+  String calendarSelectedDate = OttawaTime.todayDate();
+  Map<String, int> calendarSwimCounts = {};
+  Map<String, String> calendarDominantCategories = {};
+
+  List<ScheduleEntry> get todaysSwims => homeUpcomingSwims;
 
   Future<void> initialize() async {
     isLoading = true;
+    isOnline = await _connectivity.checkOnline();
+    appVersion = await _versionService.fullVersionLabel();
+    lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
     notifyListeners();
 
-    // Load cached DB data first so UI is never blank while sync runs.
+    final onboardingDone = await _settingsRepo.isOnboardingComplete();
+    final scheduleCount = await _scheduleRepo.countAllSchedules();
+    needsOnboarding = !onboardingDone || scheduleCount == 0;
+
+    if (needsOnboarding) {
+      isLoading = false;
+      notifyListeners();
+      return;
+    }
+
     await refreshAll();
+    await _reminderService.rescheduleAll(savedSwims);
     isLoading = false;
     notifyListeners();
 
-    final syncResult = await _syncService.syncIfNeeded();
-    if (syncResult.updated > 0 || syncResult.errors > 0) {
-      syncMessage =
-          'Sync: ${syncResult.updated} updated, ${syncResult.skipped} skipped, '
-          '${syncResult.errors} errors';
+    await _runStartupSync();
+  }
+
+  Future<void> _runStartupSync() async {
+    final versionSyncNeeded = await _syncService.needsVersionSync();
+    if (versionSyncNeeded) {
+      isSyncing = true;
+      syncMessage = 'Updating schedules for app version $appVersion…';
+      notifyListeners();
     }
+
+    final syncResult = await _syncService.syncIfNeeded(
+      force: versionSyncNeeded,
+      onProgress: _onSyncProgress,
+    );
+    _applySyncResult(syncResult);
+
+    lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
+    isSyncing = false;
+    syncProgress = null;
     await refreshAll();
   }
 
+  void _onSyncProgress(SyncProgress progress) {
+    syncProgress = progress;
+    notifyListeners();
+  }
+
+  void _applySyncResult(SyncResult result) {
+    lastSyncStatus = result.syncStatus;
+    staleFacilityNames = result.staleFacilityNames;
+    failedFacilityNames = result.failedFacilityNames;
+    blockedFacilityNames = result.blockedFacilityNames;
+    lastSyncRootCause = result.rootCauseSummary;
+    lastFacilityDiagnostics = result.facilityDiagnostics;
+
+    if (result.antiCorruptionTriggered) {
+      syncAnomalyWarning = result.antiCorruptionReason ??
+          'Source schedule data appears incomplete. '
+          'Using previously verified schedule data.';
+    } else if (result.updated > 0 || result.syncStatus == SyncStatus.success) {
+      syncAnomalyWarning = null;
+    }
+
+    if (result.updated > 0 ||
+        result.blocked > 0 ||
+        result.parseEmpty > 0 ||
+        result.syncStatus == SyncStatus.partialSuccess ||
+        result.syncStatus == SyncStatus.failed) {
+      syncMessage = switch (result.syncStatus) {
+        SyncStatus.success =>
+          'All facilities synced: ${result.updated} updated, ${result.skipped} unchanged',
+        SyncStatus.partialSuccess =>
+          'Partial update: ${result.updated} updated, '
+          '${result.blocked} blocked by ottawa.ca, '
+          '${result.parseEmpty} empty parse',
+        SyncStatus.failed when result.isFirstInstallBlocked =>
+          'Ottawa.ca blocked schedule downloads (bot protection). '
+          'Try again in a few minutes—not a connection error.',
+        SyncStatus.failed when result.isMostlyBlocked =>
+          'Most facilities blocked by ottawa.ca. Cached schedules preserved.',
+        SyncStatus.failed => result.rootCauseSummary ??
+            'Could not download schedules. Cached data preserved if available.',
+      };
+    }
+  }
+
+  bool isFacilityStale(String facilityId) {
+    for (final f in facilities) {
+      if (f.id == facilityId) return f.isStale;
+    }
+    return false;
+  }
+
+  int get staleFacilityCount =>
+      facilities.where((f) => f.isStale).length;
+
+  List<Facility> get filteredFacilities {
+    return facilities.where((f) {
+      if (facilityTypeFilter != null && f.facilityType != facilityTypeFilter) {
+        return false;
+      }
+      if (scheduleModeFilter != null && f.scheduleMode != scheduleModeFilter) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  Map<String, int> get facilityBrowseCounts {
+    int countType(FacilityType type) =>
+        facilities.where((f) => f.facilityType == type).length;
+    return {
+      'total': facilities.length,
+      'visible': filteredFacilities.length,
+      'indoor': facilities
+          .where((f) => f.facilityType == FacilityType.indoorPool)
+          .length,
+      'outdoor': countType(FacilityType.outdoorPool),
+      'wave': countType(FacilityType.wavePool),
+      'wading': countType(FacilityType.wadingPool),
+      'splash': countType(FacilityType.splashPad),
+    };
+  }
+
+  FacilityBrowseStatus browseStatusFor(Facility facility) {
+    final sessions = facilitySessionCounts[facility.id] ?? 0;
+    return FacilityBrowseHelper.statusFor(
+      facility: facility,
+      sessionCount: sessions,
+      todaySessionCount: sessions,
+    );
+  }
+
+  void setFacilityTypeFilter(FacilityType? type) {
+    facilityTypeFilter = type;
+    notifyListeners();
+  }
+
+  void setScheduleModeFilter(FacilityScheduleMode? mode) {
+    scheduleModeFilter = mode;
+    notifyListeners();
+  }
+
+  Future<void> refreshFacilityAudit() async {
+    facilityCatalogAudit = await _validationService.runFacilityInclusionAudit(
+      uiFacilities: facilities,
+    );
+    notifyListeners();
+  }
+
+  Future<bool> runOnboardingSync() async {
+    isOnline = await _connectivity.checkOnline();
+    if (!isOnline) {
+      syncMessage =
+          'Internet required for first setup. Connect and try again.';
+      notifyListeners();
+      return false;
+    }
+
+    isSyncing = true;
+    onboardingStage = 'Downloading facilities…';
+    notifyListeners();
+
+    onboardingStage = 'Downloading schedules…';
+    notifyListeners();
+
+    final result = await _syncService.forceSync(onProgress: _onSyncProgress);
+    onboardingStage = 'Organizing swims…';
+    notifyListeners();
+
+    final healthy = result.scheduleCountAfter > 0 && !result.antiCorruptionTriggered;
+    _applySyncResult(result);
+    if (healthy) {
+      onboardingFacilityCount = result.totalFacilities;
+      onboardingSessionCount = result.scheduleCountAfter;
+      showOnboardingSuccess = true;
+      syncMessage = null;
+      lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
+      await refreshAll();
+    } else if (result.isFirstInstallBlocked) {
+      syncMessage =
+          'Ottawa.ca blocked schedule downloads (bot protection). '
+          'Try again in a few minutes or on a different network—not a connection error.';
+    } else if (result.antiCorruptionTriggered) {
+      syncMessage = result.antiCorruptionReason;
+    } else {
+      syncMessage = result.rootCauseSummary ??
+          'Could not download schedules. Check connection and try again.';
+    }
+
+    isSyncing = false;
+    syncProgress = null;
+    notifyListeners();
+    return healthy;
+  }
+
+  Future<void> completeOnboarding() async {
+    await _settingsRepo.setOnboardingComplete(true);
+    needsOnboarding = false;
+    showOnboardingSuccess = false;
+    await _reminderService.rescheduleAll(savedSwims);
+    notifyListeners();
+  }
+
   Future<void> refreshAll({bool preserveCachedSwimsOnEmpty = true}) async {
+    isOnline = await _connectivity.checkOnline();
     final today = OttawaTime.todayDate();
+    final now = OttawaTime.nowTime();
     final newFacilities = await _facilityRepo.getAllFacilities(favoritesFirst: true);
     final newActive = await _scheduleRepo.getActiveNow();
-    final newTimeline = await _scheduleRepo.getTimelineForDate(today);
+    final sections = await _swimQueryService.homeSections(
+      userLat: userLat,
+      userLng: userLng,
+    );
+    final newUpcoming = await _scheduleRepo.getUpcomingSwims(
+      fromDate: today,
+      fromTime: now,
+      limit: 100,
+      userLat: userLat,
+      userLng: userLng,
+    );
+    final calendarDate = calendarSelectedDate;
+    final newCalendar = await _scheduleRepo.getTimelineForDate(calendarDate);
     final newPinStatuses = await _pinStatusUseCase.getPinStatuses(newFacilities);
     final newLogs = await _scrapeLogRepo.getRecentLogs();
     final health = await _syncService.healthSnapshot();
     final dbTodayCount = await _scheduleRepo.countSchedulesForDate(today);
 
     facilities = newFacilities;
+    final sessionCounts = <String, int>{};
+    for (final facility in newFacilities) {
+      sessionCounts[facility.id] =
+          await _scheduleRepo.countSchedulesForFacility(facility.id);
+    }
+    facilitySessionCounts = sessionCounts;
+
+    try {
+      facilityCatalogAudit =
+          await _validationService.runFacilityInclusionAudit(
+        uiFacilities: newFacilities,
+      );
+    } catch (e) {
+      appLogger.w('Facility inclusion audit failed', error: e);
+    }
+
     pinStatuses = newPinStatuses;
     scrapeLogs = newLogs;
     syncHealth = health;
+    final statusRaw = health.lastSyncStatus;
+    if (statusRaw != null) {
+      lastSyncStatus = SyncStatus.values.firstWhere(
+        (s) => s.label == statusRaw,
+        orElse: () => SyncStatus.partialSuccess,
+      );
+    }
+    staleFacilityNames = newFacilities
+        .where((f) => f.isStale)
+        .map((f) => f.name)
+        .toList();
+    parserHealth = await _syncService.parserHealthSnapshot();
+    savedSwims = await _savedSwimRepo.getAll(upcomingOnly: true);
+    unknownCategories = await _scheduleRepo.getUnknownRawCategories();
+    futureSessionCount = await _scheduleRepo.countFutureSessions(today);
+    totalSessionCount = await _scheduleRepo.countAllSchedules();
+    scrapeErrorCount = (await _scrapeLogRepo.getErrors()).length;
     validationWarnings = await _validationService.runValidationChecks();
     rawNameAudit = await _validationService.auditRawNames();
+    homeSections = sections;
+    lastSyncedAppVersion =
+        health.lastSyncedAppVersion ?? await _settingsRepo.getLastSyncedAppVersion();
 
     activeSwims = _mergeScheduleList(
       previous: activeSwims,
@@ -110,23 +410,22 @@ class AppState extends ChangeNotifier {
       dbCount: dbTodayCount,
     );
 
-    timeline = _mergeScheduleList(
-      previous: timeline,
-      incoming: newTimeline,
+    homeUpcomingSwims = _mergeScheduleList(
+      previous: homeUpcomingSwims,
+      incoming: newUpcoming,
       preserveOnEmpty: preserveCachedSwimsOnEmpty,
-      label: 'timeline',
+      label: 'homeUpcomingSwims',
       dbCount: dbTodayCount,
     );
 
+    calendarSwims = newCalendar;
+
     _traceLogger.logUiDataset(
       today: today,
-      timelineCount: timeline.length,
+      timelineCount: homeUpcomingSwims.length,
       activeCount: activeSwims.length,
-      facilitiesWithToday: timeline
-          .where((s) => OttawaTime.isRemainingToday(
-                end: s.endTime,
-                time: OttawaTime.nowTime(),
-              ))
+      facilitiesWithToday: homeUpcomingSwims
+          .where((s) => s.date == today)
           .map((s) => s.facilityId)
           .toSet()
           .length,
@@ -136,9 +435,16 @@ class AppState extends ChangeNotifier {
     if (position != null) {
       userLat = position.latitude;
       userLng = position.longitude;
-      nearestHighlights = await _nearestUseCase.nearestHighlights(
-        lat: userLat!,
-        lng: userLng!,
+      homeSections = await _swimQueryService.homeSections(
+        userLat: userLat,
+        userLng: userLng,
+      );
+      homeUpcomingSwims = await _scheduleRepo.getUpcomingSwims(
+        fromDate: today,
+        fromTime: now,
+        limit: 100,
+        userLat: userLat,
+        userLng: userLng,
       );
     }
 
@@ -164,6 +470,53 @@ class AppState extends ChangeNotifier {
     return incoming;
   }
 
+  Future<void> loadCalendarDate(String date) async {
+    calendarSelectedDate = date;
+    calendarSwims = await _scheduleRepo.getTimelineForDate(date);
+    notifyListeners();
+  }
+
+  Future<void> loadCalendarMonth(DateTime month) async {
+    final start = DateTime(month.year, month.month, 1);
+    final end = DateTime(month.year, month.month + 1, 0);
+    final startStr = OttawaTime.formatDate(start);
+    final endStr = OttawaTime.formatDate(end);
+    calendarSwimCounts = await _scheduleRepo.getSwimCountsByDate(
+      startDate: startStr,
+      endDate: endStr,
+    );
+    calendarDominantCategories = await _scheduleRepo.getDominantCategoryByDate(
+      startDate: startStr,
+      endDate: endStr,
+    );
+    notifyListeners();
+  }
+
+  Future<List<String>> datesWithSwims(DateTime month) async {
+    final start = DateTime(month.year, month.month, 1);
+    final end = DateTime(month.year, month.month + 1, 0);
+    return _scheduleRepo.getDatesWithSwims(
+      startDate: OttawaTime.formatDate(start),
+      endDate: OttawaTime.formatDate(end),
+    );
+  }
+
+  Future<FacilitySwimSummary> facilitySwimSummary(String facilityId) =>
+      _swimQueryService.facilitySummary(facilityId);
+
+  Future<ScheduleEntry?> nextAvailableSwim() async {
+    final today = OttawaTime.todayDate();
+    final now = OttawaTime.nowTime();
+    final results = await _scheduleRepo.findNextSwimsAfter(
+      date: today,
+      time: now,
+      limit: 1,
+      userLat: userLat,
+      userLng: userLng,
+    );
+    return results.isEmpty ? null : results.first;
+  }
+
   void clearSearchResults() {
     if (searchResults.isEmpty) return;
     searchResults = [];
@@ -171,18 +524,25 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> manualSync() async {
+    isOnline = await _connectivity.checkOnline();
+    if (!isOnline) {
+      syncMessage = 'Offline — using cached data. Connect to sync.';
+      notifyListeners();
+      return;
+    }
+
     isSyncing = true;
     syncMessage = null;
+    syncProgress = null;
     notifyListeners();
 
-    final result = await _syncService.forceSync();
-    syncMessage =
-        '${result.statusLabel}: ${result.updated} updated, ${result.skipped} skipped, '
-        '${result.errors} errors, ${result.rejected} rejected, '
-        'DB ${result.scheduleCountBefore}→${result.scheduleCountAfter}';
+    final result = await _syncService.forceSync(onProgress: _onSyncProgress);
+    _applySyncResult(result);
+    lastSyncedAppVersion = await _settingsRepo.getLastSyncedAppVersion();
     await refreshAll();
 
     isSyncing = false;
+    syncProgress = null;
     notifyListeners();
   }
 
@@ -190,14 +550,18 @@ class AppState extends ChangeNotifier {
     List<String>? categories,
     String? facilityId,
     DateTime? date,
+    String? startDate,
+    String? endDate,
     String? startAfter,
     String? endBefore,
     double? maxDistanceKm,
     QuickFilter? quickFilter,
   }) async {
     var searchDate = date;
-    var searchStart = startAfter;
-    var searchEnd = endBefore;
+    var searchStart = startDate;
+    var searchEnd = endDate;
+    var searchStartAfter = startAfter;
+    var searchEndBefore = endBefore;
 
     if (quickFilter != null) {
       final now = DateTime.now();
@@ -208,13 +572,13 @@ class AppState extends ChangeNotifier {
           notifyListeners();
           return;
         case QuickFilter.withinOneHour:
-          searchStart = OttawaTime.nowTime();
-          searchEnd = OttawaTime.formatTime(
+          searchStartAfter = OttawaTime.nowTime();
+          searchEndBefore = OttawaTime.formatTime(
             DateTime.now().add(const Duration(hours: 1)),
           );
         case QuickFilter.tonight:
-          searchStart = '17:00';
-          searchEnd = '23:59';
+          searchStartAfter = '17:00';
+          searchEndBefore = '23:59';
         case QuickFilter.tomorrow:
           searchDate = now.add(const Duration(days: 1));
         case QuickFilter.thisWeekend:
@@ -223,22 +587,30 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    searchResults = await _searchUseCase(
-      categories: categories,
-      facilityId: facilityId,
-      date: searchDate != null ? OttawaTime.formatDate(searchDate) : null,
-      startAfter: searchStart,
-      endBefore: searchEnd,
-      maxDistanceKm: maxDistanceKm,
-      userLat: userLat,
-      userLng: userLng,
-      favoritesFirst: true,
-    );
-    notifyListeners();
-  }
-
-  Future<void> loadTimeline(DateTime date) async {
-    timeline = await _scheduleRepo.getTimelineForDate(OttawaTime.formatDate(date));
+    if (searchStart != null && searchEnd != null) {
+      searchResults = await _scheduleRepo.getUpcomingSwims(
+        fromDate: searchStart,
+        fromTime: '00:00',
+        toDate: searchEnd,
+        categories: categories,
+        facilityId: facilityId,
+        userLat: userLat,
+        userLng: userLng,
+        maxDistanceKm: maxDistanceKm,
+      );
+    } else {
+      searchResults = await _searchUseCase(
+        categories: categories,
+        facilityId: facilityId,
+        date: searchDate != null ? OttawaTime.formatDate(searchDate) : null,
+        startAfter: searchStartAfter,
+        endBefore: searchEndBefore,
+        maxDistanceKm: maxDistanceKm,
+        userLat: userLat,
+        userLng: userLng,
+        favoritesFirst: true,
+      );
+    }
     notifyListeners();
   }
 
@@ -247,30 +619,210 @@ class AppState extends ChangeNotifier {
     await refreshAll();
   }
 
+  Future<void> saveSwim(
+    ScheduleEntry entry, {
+    int? reminderMinutes,
+    bool asRecurring = false,
+  }) async {
+    int savedId;
+    if (asRecurring && entry.dayOfWeek != null) {
+      savedId = await _savedSwimRepo.saveRecurringPattern(
+        facilityId: entry.facilityId,
+        category: entry.category,
+        rawCategory: entry.rawCategory,
+        dayOfWeek: entry.dayOfWeek!,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
+        reminderMinutes: reminderMinutes,
+      );
+    } else {
+      savedId = await _savedSwimRepo.saveSession(
+        entry,
+        reminderMinutes: reminderMinutes,
+      );
+    }
+    savedSwims = await _savedSwimRepo.getAll(upcomingOnly: true);
+    final saved = await _savedSwimRepo.getById(savedId);
+    if (saved != null) {
+      if (saved.isRecurring) {
+        for (final occ in saved.upcomingOccurrences.take(4)) {
+          await _reminderService.scheduleForSession(
+            saved,
+            occurrenceDate: occ.date,
+            facilityName: saved.facilityName,
+          );
+        }
+      } else {
+        await _reminderService.scheduleForSession(
+          saved,
+          facilityName: saved.facilityName,
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> updateSavedSwimReminder(int id, int? reminderMinutes) async {
+    await _savedSwimRepo.updateReminder(id, reminderMinutes);
+    final swim = await _savedSwimRepo.getById(id);
+    if (swim != null) {
+      await _reminderService.cancelForSwim(swim);
+      if (reminderMinutes != null) {
+        if (swim.isRecurring) {
+          for (final occ in swim.upcomingOccurrences.take(4)) {
+            await _reminderService.scheduleForSession(
+              swim.copyWith(upcomingOccurrences: swim.upcomingOccurrences),
+              occurrenceDate: occ.date,
+              facilityName: swim.facilityName,
+            );
+          }
+        } else {
+          await _reminderService.scheduleForSession(
+            swim,
+            facilityName: swim.facilityName,
+          );
+        }
+      }
+    }
+    savedSwims = await _savedSwimRepo.getAll(upcomingOnly: true);
+    notifyListeners();
+  }
+
+  Future<void> removeSavedSwim(int id) async {
+    final swim = await _savedSwimRepo.getById(id);
+    if (swim != null) await _reminderService.cancelForSwim(swim);
+    await _savedSwimRepo.remove(id);
+    savedSwims = await _savedSwimRepo.getAll(upcomingOnly: true);
+    notifyListeners();
+  }
+
+  Future<List<ScheduleEntry>> findSwimsActiveAt(
+    String time, {
+    String? date,
+    String? endDate,
+    List<String>? categories,
+    String? facilityId,
+    double? maxDistanceKm,
+  }) async {
+    if (endDate != null && endDate != date) {
+      final all = await _scheduleRepo.getUpcomingSwims(
+        fromDate: date ?? OttawaTime.todayDate(),
+        fromTime: '00:00',
+        toDate: endDate,
+        categories: categories,
+        facilityId: facilityId,
+        userLat: userLat,
+        userLng: userLng,
+        maxDistanceKm: maxDistanceKm,
+      );
+      return all
+          .where((e) =>
+              e.date != null &&
+              OttawaTime.isActiveAt(
+                start: e.startTime,
+                end: e.endTime,
+                time: time,
+              ))
+          .toList();
+    }
+
+    var results = await _scheduleRepo.findSwimsActiveAt(
+      date: date ?? OttawaTime.todayDate(),
+      time: time,
+      userLat: userLat,
+      userLng: userLng,
+    );
+    if (categories != null && categories.isNotEmpty) {
+      results = results.where((e) => categories.contains(e.category)).toList();
+    }
+    if (facilityId != null) {
+      results = results.where((e) => e.facilityId == facilityId).toList();
+    }
+    if (maxDistanceKm != null) {
+      results = results
+          .where((e) => (e.distanceKm ?? double.infinity) <= maxDistanceKm)
+          .toList();
+    }
+    return results;
+  }
+
+  Future<List<ScheduleEntry>> findSwimsAfter(
+    String time, {
+    String? date,
+    String? endDate,
+    List<String>? categories,
+    String? facilityId,
+    double? maxDistanceKm,
+    bool nextAcrossDays = false,
+  }) async {
+    final queryDate = date ?? OttawaTime.todayDate();
+    if (endDate != null) {
+      return _scheduleRepo.getUpcomingSwims(
+        fromDate: queryDate,
+        fromTime: time,
+        toDate: endDate,
+        categories: categories,
+        facilityId: facilityId,
+        userLat: userLat,
+        userLng: userLng,
+        maxDistanceKm: maxDistanceKm,
+      );
+    }
+    if (nextAcrossDays) {
+      return _scheduleRepo.findNextSwimsAfter(
+        date: queryDate,
+        time: time,
+        userLat: userLat,
+        userLng: userLng,
+        categories: categories,
+        facilityId: facilityId,
+        maxDistanceKm: maxDistanceKm,
+      );
+    }
+    return _scheduleRepo.findSwimsAfter(
+      date: queryDate,
+      time: time,
+      userLat: userLat,
+      userLng: userLng,
+      categories: categories,
+      facilityId: facilityId,
+      maxDistanceKm: maxDistanceKm,
+    );
+  }
+
   Future<bool> getNotificationSetting(String key) =>
       _settingsRepo.getBool(key);
-
-  Future<List<ScheduleEntry>> findSwimsActiveAt(String time) {
-    return _scheduleRepo.findSwimsActiveAt(
-      date: OttawaTime.todayDate(),
-      time: time,
-      userLat: userLat,
-      userLng: userLng,
-    );
-  }
-
-  Future<List<ScheduleEntry>> findSwimsAfter(String time) {
-    return _scheduleRepo.findSwimsAfter(
-      date: OttawaTime.todayDate(),
-      time: time,
-      userLat: userLat,
-      userLng: userLng,
-    );
-  }
 
   Future<void> setNotificationSetting(String key, bool value) async {
     await _settingsRepo.setBool(key, value);
     notifyListeners();
+  }
+
+  Future<List<ScheduleEntry>> scheduleForFacilityOnDate(
+    String facilityId,
+    String date,
+  ) =>
+      _scheduleRepo.getTimelineForDate(date, facilityId: facilityId);
+
+  Future<List<ScheduleEntry>> upcomingForFacility(String facilityId) async {
+    final today = OttawaTime.todayDate();
+    final now = OttawaTime.nowTime();
+    return _scheduleRepo.getUpcomingSwims(
+      fromDate: today,
+      fromTime: now,
+      facilityId: facilityId,
+      limit: 100,
+    );
+  }
+
+  DateTime? get lastSuccessfulSyncAt => syncHealth?.lastSuccessfulSyncAt;
+
+  String get dataAgeLabel {
+    final last = lastSuccessfulSyncAt;
+    if (last == null) return 'Unknown';
+    final days = DateTime.now().difference(last).inDays;
+    if (days == 0) return 'Today';
+    return '$days day${days == 1 ? '' : 's'}';
   }
 }
 

@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../domain/repositories/repositories.dart';
 import '../database/app_database.dart';
 
@@ -47,5 +48,43 @@ class SettingsRepositoryImpl implements SettingsRepository {
   @override
   Future<void> setLastSyncAt(int timestamp) async {
     await setString('last_sync_at', timestamp.toString());
+    await setString('last_sync_success_at', timestamp.toString());
+  }
+
+  @override
+  Future<int> getLastSyncAttemptAt() async {
+    final value = await getString('last_sync_attempt_at');
+    return int.tryParse(value ?? '') ?? 0;
+  }
+
+  @override
+  Future<void> setLastSyncAttemptAt(int timestamp) async {
+    await setString('last_sync_attempt_at', timestamp.toString());
+  }
+
+  @override
+  Future<String?> getLastSyncStatus() async => getString('last_sync_status');
+
+  @override
+  Future<void> setLastSyncStatus(String status) async {
+    await setString('last_sync_status', status);
+  }
+
+  @override
+  Future<bool> isOnboardingComplete() async =>
+      getBool('onboarding_complete', defaultValue: false);
+
+  @override
+  Future<void> setOnboardingComplete(bool complete) async {
+    await setBool('onboarding_complete', complete);
+  }
+
+  @override
+  Future<String?> getLastSyncedAppVersion() async =>
+      getString(AppConstants.settingsLastSyncedAppVersion);
+
+  @override
+  Future<void> setLastSyncedAppVersion(String version) async {
+    await setString(AppConstants.settingsLastSyncedAppVersion, version);
   }
 }

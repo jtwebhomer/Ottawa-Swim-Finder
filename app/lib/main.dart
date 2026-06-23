@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:workmanager/workmanager.dart';
 
 import 'app.dart';
@@ -15,6 +17,8 @@ import 'data/services/sync_service.dart';
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     WidgetsFlutterBinding.ensureInitialized();
+    tz_data.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('America/Toronto'));
     await configureDependencies();
     final syncService = getIt<SyncService>();
     await syncService.syncIfNeeded(force: true);
@@ -27,13 +31,15 @@ Future<void> _initWorkmanager() async {
   await Workmanager().registerPeriodicTask(
     AppConstants.syncTaskName,
     AppConstants.syncTaskName,
-    frequency: const Duration(hours: 6),
+    frequency: const Duration(days: 7),
     constraints: Constraints(networkType: NetworkType.connected),
   );
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  tz_data.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('America/Toronto'));
 
   FlutterError.onError = (details) {
     appLogger.e(

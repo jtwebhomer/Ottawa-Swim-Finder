@@ -69,7 +69,10 @@ class SwimCategories {
 }
 
 class AppConstants {
-  static const syncIntervalHours = 6;
+  static const syncIntervalDays = 7;
+  static const syncIntervalHours = syncIntervalDays * 24;
+
+  static const settingsLastSyncedAppVersion = 'last_synced_app_version';
   static const syncTaskName = 'ottawaSwimSync';
   static const userAgent = 'OttawaSwimFinder/1.0';
   static const ottawaBaseUrl = 'https://ottawa.ca';

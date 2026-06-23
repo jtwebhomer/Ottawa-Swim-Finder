@@ -10,13 +10,19 @@ class ScheduleSessionCard extends StatelessWidget {
     required this.entry,
     this.highlight = false,
     this.showFacility = false,
+    this.isStale = false,
     this.onTap,
+    this.onSave,
+    this.onExport,
   });
 
   final ScheduleEntry entry;
   final bool highlight;
   final bool showFacility;
+  final bool isStale;
   final VoidCallback? onTap;
+  final VoidCallback? onSave;
+  final VoidCallback? onExport;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +52,30 @@ class ScheduleSessionCard extends StatelessWidget {
             ),
             if (showFacility && entry.facilityName != null)
               Text(entry.facilityName!),
+            if (entry.distanceKm != null)
+              Text('${entry.distanceKm!.toStringAsFixed(1)} km away'),
+            if (isStale)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 14,
+                      color: Colors.orange.shade800,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'May be outdated',
+                      style: TextStyle(
+                        color: Colors.orange.shade800,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 4),
             Text(
               status.label,
@@ -61,7 +91,24 @@ class ScheduleSessionCard extends StatelessWidget {
           ],
         ),
         isThreeLine: true,
-        trailing: onTap != null ? const Icon(Icons.chevron_right) : null,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onExport != null)
+              IconButton(
+                icon: const Icon(Icons.event),
+                tooltip: 'Export to calendar',
+                onPressed: onExport,
+              ),
+            if (onSave != null)
+              IconButton(
+                icon: const Icon(Icons.bookmark_add_outlined),
+                tooltip: 'Save swim',
+                onPressed: onSave,
+              ),
+            if (onTap != null) const Icon(Icons.chevron_right),
+          ],
+        ),
       ),
     );
   }

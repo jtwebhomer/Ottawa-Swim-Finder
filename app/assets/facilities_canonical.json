@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "source_indoor_url": "https://ottawa.ca/en/drop-swimming-and-aquafitness/indoor-pools-drop-locations",
+    "source_outdoor_url": "https://ottawa.ca/en/recreation-and-parks/parks-facilities-and-rentals/outdoor-recreation/water-activities/outdoor-pools",
+    "city_marketing_indoor_count": 21,
+    "enumerated_indoor_count": 20,
+    "notes": "Ottawa marketing cites 21 indoor pools; the official drop-in listing enumerates 20 named facilities. The app matches the enumerated list. Canterbury Wading Pool is listed separately as seasonal wading when the indoor pool is under renovation."
+  },
+  "facilities": [
+    {"id": "brewer-pool-and-arena", "name": "Brewer Pool and Arena", "address": "100 Brewer Way", "latitude": 45.3889, "longitude": -75.6889, "region": "central", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "champagne-fitness-centre", "name": "Champagne Fitness Centre", "address": "321 King Edward Avenue", "latitude": 45.4290, "longitude": -75.6780, "region": "central", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "jack-purcell-community-centre", "name": "Jack Purcell Community Centre", "address": "320 Jack Purcell Lane", "latitude": 45.4180, "longitude": -75.6890, "region": "central", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "lowertown-community-centre-and-pool", "name": "Lowertown Community Centre and Pool", "address": "40 Cobourg Street", "latitude": 45.4280, "longitude": -75.6880, "region": "central", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "plant-recreation-centre", "name": "Plant Recreation Centre", "address": "930 Somerset Street West", "latitude": 45.4090, "longitude": -75.6990, "region": "central", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "bob-macquarrie-recreation-complex-orleans", "name": "Bob MacQuarrie Recreation Complex - Orléans", "address": "1490 Youville Drive", "latitude": 45.4760, "longitude": -75.5160, "region": "east", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "canterbury-recreation-complex", "name": "Canterbury Recreation Complex", "address": "2185 Arch Street", "latitude": 45.3520, "longitude": -75.6680, "region": "east", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "francois-dupuis-recreation-centre", "name": "François Dupuis Recreation Centre", "address": "2263 Portobello Boulevard", "latitude": 45.4670, "longitude": -75.5120, "region": "east", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "ray-friel-recreation-complex", "name": "Ray Friel Recreation Complex", "address": "1585 Tenth Line Road", "latitude": 45.4670, "longitude": -75.4680, "region": "east", "facility_type": "WAVE_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "splash-wave-pool", "name": "Splash Wave Pool", "address": "2040 Ogilvie Road", "latitude": 45.4360, "longitude": -75.5980, "region": "east", "facility_type": "WAVE_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "st-laurent-complex", "name": "St. Laurent Complex", "address": "525 Côté Street", "latitude": 45.4380, "longitude": -75.6380, "region": "east", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "deborah-anne-kirwan-pool", "name": "Deborah Anne Kirwan Pool", "address": "1300 Kitchener Avenue", "latitude": 45.3580, "longitude": -75.6480, "region": "south", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "sawmill-creek-community-centre-and-pool", "name": "Sawmill Creek Community Centre and Pool", "address": "3380 D'Aoust Avenue", "latitude": 45.3680, "longitude": -75.6980, "region": "south", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "nepean-sportsplex", "name": "Nepean Sportsplex", "address": "1701 Woodroffe Avenue", "latitude": 45.3380, "longitude": -75.7580, "region": "south", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "walter-baker-sports-centre", "name": "Walter Baker Sports Centre", "address": "100 Malvern Drive", "latitude": 45.2780, "longitude": -75.7580, "region": "south", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "cardelrec-recreation-complex-goulbourn", "name": "CARDELREC Recreation Complex Goulbourn", "address": "1500 Shea Road", "latitude": 45.2580, "longitude": -75.9180, "region": "west", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "kanata-leisure-centre-and-wave-pool", "name": "Kanata Leisure Centre and Wave Pool", "address": "70 Aird Place", "latitude": 45.3080, "longitude": -75.9180, "region": "west", "facility_type": "WAVE_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "minto-recreation-complex-barrhaven", "name": "Minto Recreation Complex - Barrhaven", "address": "3500 Cambrian Road", "latitude": 45.2780, "longitude": -75.7580, "region": "west", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "pinecrest-recreation-complex", "name": "Pinecrest Recreation Complex", "address": "2250 Torquay Avenue", "latitude": 45.3480, "longitude": -75.7580, "region": "west", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "richcraft-recreation-complex-kanata", "name": "Richcraft Recreation Complex-Kanata", "address": "4101 Innovation Drive", "latitude": 45.2980, "longitude": -75.8980, "region": "west", "facility_type": "INDOOR_POOL", "schedule_mode": "HAS_SWIM_SCHEDULE"},
+    {"id": "canterbury-wading-pool", "name": "Canterbury Wading Pool", "address": "2185 Arch Street", "latitude": 45.3520, "longitude": -75.6680, "region": "east", "facility_type": "WADING_POOL", "schedule_mode": "OPEN_HOURS_ONLY", "notes": "Seasonal wading pool; supplements Canterbury indoor during renovations"},
+    {"id": "bearbrook-pool", "name": "Bearbrook Pool", "address": "2679 Innes Road", "latitude": 45.4480, "longitude": -75.4780, "region": "east", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"},
+    {"id": "beaverbrook-pool-kanata", "name": "Beaverbrook Pool - Kanata", "address": "1002 Beaverbrook Lane", "latitude": 45.3380, "longitude": -75.8980, "region": "west", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"},
+    {"id": "corkstown-pool", "name": "Corkstown Pool", "address": "61 Corkstown Road", "latitude": 45.3180, "longitude": -75.8780, "region": "west", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"},
+    {"id": "crestview-pool", "name": "Crestview Pool", "address": "56 Fieldrow Street", "latitude": 45.3280, "longitude": -75.7680, "region": "west", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"},
+    {"id": "entrance-pool", "name": "Entrance Pool", "address": "2 Eaton Street", "latitude": 45.2980, "longitude": -75.8580, "region": "west", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"},
+    {"id": "general-burns-pool", "name": "General Burns Pool", "address": "107 Chesterton Drive", "latitude": 45.2680, "longitude": -75.7280, "region": "south", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"},
+    {"id": "genest-pool", "name": "Genest Pool", "address": "43 Ste-Cécile Street", "latitude": 45.4380, "longitude": -75.6480, "region": "east", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"},
+    {"id": "glen-cairn-pool", "name": "Glen Cairn Pool", "address": "70 Castlefrank Road", "latitude": 45.2880, "longitude": -75.8680, "region": "west", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"},
+    {"id": "katimavik-pool", "name": "Katimavik Pool", "address": "64 Chimo Drive", "latitude": 45.2780, "longitude": -75.8880, "region": "west", "facility_type": "OUTDOOR_POOL", "schedule_mode": "SEASONAL_ONLY"}
+  ]
+}

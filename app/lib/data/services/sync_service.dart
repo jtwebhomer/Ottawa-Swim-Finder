@@ -1,64 +1,276 @@
 import '../../core/constants/app_constants.dart';
+
+import '../../domain/entities/sync_log.dart';
+import '../../domain/entities/sync_progress.dart';
+
+import '../../domain/entities/sync_status.dart';
+
 import '../../domain/repositories/repositories.dart';
+
 import '../scraper/ottawa_scraper.dart';
+
+import 'app_version_service.dart';
+
+import 'parser_health_service.dart';
+
 import 'sync_health_service.dart';
+
 import 'sync_safety_guard.dart';
 
+
+
 class SyncService {
+
   SyncService({
+
     required OttawaScraper scraper,
+
     required SettingsRepository settingsRepo,
+
+    required AppVersionService versionService,
+
+    required ScheduleRepository scheduleRepo,
+
+    SyncLogRepository? syncLogRepo,
+
     SyncHealthService? healthService,
+
+    ParserHealthService? parserHealthService,
+
     SyncSafetyGuard? safetyGuard,
+
   })  : _scraper = scraper,
+
         _settingsRepo = settingsRepo,
+
+        _versionService = versionService,
+
+        _scheduleRepo = scheduleRepo,
+
+        _syncLogRepo = syncLogRepo,
+
         _healthService = healthService ?? SyncHealthService(settingsRepo),
+
+        _parserHealth = parserHealthService ?? ParserHealthService(settingsRepo),
+
         _safetyGuard = safetyGuard ?? SyncSafetyGuard();
 
+
+
   final OttawaScraper _scraper;
+
   final SettingsRepository _settingsRepo;
+
+  final AppVersionService _versionService;
+
+  final ScheduleRepository _scheduleRepo;
+
+  final SyncLogRepository? _syncLogRepo;
+
   final SyncHealthService _healthService;
+
+  final ParserHealthService _parserHealth;
+
   final SyncSafetyGuard _safetyGuard;
 
-  Future<SyncResult> syncIfNeeded({bool force = false}) async {
-    if (!force) {
-      final lastSync = await _settingsRepo.getLastSyncAt();
-      final hoursSince =
-          (DateTime.now().millisecondsSinceEpoch - lastSync) / (1000 * 60 * 60);
-      if (hoursSince < AppConstants.syncIntervalHours) {
-        return const SyncResult(updated: 0, skipped: 0, errors: 0);
-      }
-    }
 
-    final result = await _scraper.syncAll(force: force);
 
-    await _healthService.recordSyncResult(
-      status: result.statusLabel,
-      scheduleCountBefore: result.scheduleCountBefore,
-      scheduleCountAfter: result.scheduleCountAfter,
-      updated: result.updated,
-      skipped: result.skipped,
-      errors: result.errors,
-      http403Count: result.http403Count,
-    );
+  Future<bool> needsVersionSync() async {
 
-    final healthy = _safetyGuard.isSyncHealthy(
-      totalFacilities: result.totalFacilities,
-      updated: result.updated,
-      skipped: result.skipped,
-      errors: result.errors,
-      scheduleCountBefore: result.scheduleCountBefore,
-      scheduleCountAfter: result.scheduleCountAfter,
-    );
+    final current = await _versionService.fullVersionLabel();
 
-    if (healthy) {
-      await _settingsRepo.setLastSyncAt(DateTime.now().millisecondsSinceEpoch);
-    }
+    final lastSynced = await _settingsRepo.getLastSyncedAppVersion();
 
-    return result;
+    return lastSynced == null || lastSynced != current;
+
   }
 
-  Future<SyncResult> forceSync() => syncIfNeeded(force: true);
+
+
+  Future<SyncResult> syncIfNeeded({
+
+    bool force = false,
+
+    SyncProgressCallback? onProgress,
+
+  }) async {
+
+    final attemptAt = DateTime.now().millisecondsSinceEpoch;
+
+    await _settingsRepo.setLastSyncAttemptAt(attemptAt);
+
+
+
+    final versionOutdated = await needsVersionSync();
+
+
+
+    if (!force && !versionOutdated) {
+
+      final lastSync = await _settingsRepo.getLastSyncAt();
+
+      final hoursSince =
+
+          (DateTime.now().millisecondsSinceEpoch - lastSync) / (1000 * 60 * 60);
+
+      if (hoursSince < AppConstants.syncIntervalHours) {
+
+        return const SyncResult(
+
+          syncStatus: SyncStatus.success,
+
+          updated: 0,
+
+          skipped: 0,
+
+          errors: 0,
+
+        );
+
+      }
+
+    }
+
+
+
+    return _runSync(force: force || versionOutdated, onProgress: onProgress);
+
+  }
+
+
+
+  Future<SyncResult> forceSync({SyncProgressCallback? onProgress}) =>
+
+      _runSync(force: true, onProgress: onProgress);
+
+
+
+  Future<SyncResult> _runSync({
+
+    required bool force,
+
+    SyncProgressCallback? onProgress,
+
+  }) async {
+
+    final started = DateTime.now();
+
+    final result = await _scraper.syncAll(force: force, onProgress: onProgress);
+
+    final durationMs = DateTime.now().difference(started).inMilliseconds;
+
+
+
+    await _settingsRepo.setLastSyncStatus(result.syncStatus.label);
+
+
+
+    await _healthService.recordSyncResult(
+
+      status: result.syncStatus.label,
+
+      scheduleCountBefore: result.scheduleCountBefore,
+
+      scheduleCountAfter: result.scheduleCountAfter,
+
+      updated: result.updated,
+
+      skipped: result.skipped,
+
+      errors: result.errors,
+
+      blocked: result.blocked,
+
+      staleCount: result.staleCount,
+
+      successRate: result.successRate,
+
+      http403Count: result.http403Count,
+
+      durationMs: durationMs,
+
+    );
+
+
+
+    if (result.antiCorruptionTriggered) {
+
+      await _parserHealth.recordRejectedParse(
+
+        result.antiCorruptionReason ?? 'Sync rejected — success rate too low',
+
+      );
+
+    }
+
+
+
+    final healthy = _safetyGuard.isSyncHealthy(
+
+      totalFacilities: result.totalFacilities,
+
+      updated: result.updated,
+
+      skipped: result.skipped,
+
+      errors: result.errors,
+
+      scheduleCountBefore: result.scheduleCountBefore,
+
+      scheduleCountAfter: result.scheduleCountAfter,
+
+      globalRejected: result.antiCorruptionTriggered,
+
+    );
+
+
+
+    if (healthy) {
+
+      await _settingsRepo.setLastSyncAt(DateTime.now().millisecondsSinceEpoch);
+
+      final version = await _versionService.fullVersionLabel();
+
+      await _settingsRepo.setLastSyncedAppVersion(version);
+
+
+
+      final unknown = await _scheduleRepo.getUnknownRawCategories();
+
+      await _parserHealth.recordSuccessfulParse(
+
+        facilitiesParsed: result.facilitiesParsed,
+
+        totalFacilities: result.totalFacilities,
+
+        futureSessions: result.projectedFutureSessions,
+
+        unknownCategories: unknown.length,
+
+      );
+
+    }
+
+
+
+    return result;
+
+  }
+
+
 
   Future<SyncHealthSnapshot> healthSnapshot() => _healthService.load();
+
+
+
+  Future<ParserHealthSnapshot> parserHealthSnapshot() => _parserHealth.load();
+
+
+
+  Future<SyncLogEntry?> lastFullyCleanSync() async =>
+
+      _syncLogRepo?.getLastFullyCleanSync();
+
 }
+
+

@@ -61,6 +61,14 @@ def _parse_date_range(title: str) -> tuple[str | None, str | None]:
         end = date_parser.parse(f"{match.group(2)} {year}").date()
         if end < start:
             end = end.replace(year=year + 1)
+        today = date.today()
+        # Cross-year season (e.g. Sept–June): in Jan–Jun the start is last year.
+        if today < start and end.year == start.year + 1:
+            start = start.replace(year=start.year - 1)
+            end = end.replace(year=end.year - 1)
+        while end < today:
+            start = start.replace(year=start.year + 1)
+            end = end.replace(year=end.year + 1)
         return start.isoformat(), end.isoformat()
     except (ValueError, TypeError):
         return None, None
@@ -199,10 +207,6 @@ def expand_recurring_entries(
             if entry.date_range_end
             else range_end
         )
-
-        # Season ended: roll forward until the range covers today.
-        while table_end < today:
-            table_end = table_end.replace(year=table_end.year + 1)
 
         effective_start = max(range_start, table_start)
         effective_end = min(range_end, table_end)

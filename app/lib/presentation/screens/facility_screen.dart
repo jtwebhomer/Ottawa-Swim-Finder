@@ -5,6 +5,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/utils/ottawa_time.dart';
 import '../../di/injection.dart';
 import '../../domain/entities/facility.dart';
+import '../../domain/entities/facility_type.dart';
 import '../../domain/entities/schedule_entry.dart';
 import '../../domain/repositories/repositories.dart';
 import '../../domain/usecases/swim_usecases.dart';
@@ -108,7 +109,25 @@ class _FacilityScreenState extends State<FacilityScreen> {
               padding: const EdgeInsets.only(top: 4),
               child: Text('Region: ${facility.region}'),
             ),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '${facility.facilityType.label} · ${facility.scheduleMode.label}',
+            ),
+          ),
           const SizedBox(height: 16),
+          if (!facility.hasSwimSchedule)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  facility.isSeasonal
+                      ? 'Seasonal facility — check ottawa.ca for current opening dates and hours.'
+                      : 'Open-hours facility — swim session tables are not published for this location.',
+                ),
+              ),
+            ),
+          if (facility.hasSwimSchedule) ...[
           Row(
             children: [
               Chip(label: Text('Occupancy: $_occupancy')),
@@ -145,6 +164,7 @@ class _FacilityScreenState extends State<FacilityScreen> {
                 highlight: s.id == active?.id || s.id == next?.id,
               ),
             ),
+          ],
         ],
       ),
     );

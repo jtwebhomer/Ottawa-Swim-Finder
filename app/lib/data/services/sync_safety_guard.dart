@@ -1,3 +1,4 @@
+import '../../core/constants/sync_thresholds.dart';
 import '../../core/logging/app_logger.dart';
 import '../../domain/entities/schedule_entry.dart';
 
@@ -12,7 +13,6 @@ class SyncWriteDecision {
 
 /// Prevents destructive sync writes that would wipe good cached data.
 class SyncSafetyGuard {
-  /// Minimum entries expected when HTML clearly contains swim schedules.
   static const int minEntriesWhenHtmlHasSwims = 1;
 
   SyncWriteDecision evaluate({
@@ -23,7 +23,9 @@ class SyncSafetyGuard {
     required int httpStatus,
   }) {
     if (httpStatus != 200) {
-      return SyncWriteDecision.reject('HTTP $httpStatus — keeping $existingEntryCount cached rows');
+      return SyncWriteDecision.reject(
+        'HTTP $httpStatus — keeping $existingEntryCount cached rows',
+      );
     }
 
     if (newEntries.isEmpty && existingEntryCount > 0) {
@@ -44,6 +46,17 @@ class SyncSafetyGuard {
       );
     }
 
+    if (existingEntryCount >= SyncThresholds.minFacilityBaselineRows &&
+        newEntries.isNotEmpty &&
+        newEntries.length <
+            (existingEntryCount * SyncThresholds.minFacilitySessionRatio)
+                .round()) {
+      return SyncWriteDecision.reject(
+        'Facility session drop ${existingEntryCount}→${newEntries.length} '
+        'below ${(SyncThresholds.minFacilitySessionRatio * 100).round()}% threshold',
+      );
+    }
+
     for (final entry in newEntries) {
       if (entry.startTime.compareTo(entry.endTime) >= 0) {
         return SyncWriteDecision.reject(
@@ -59,7 +72,51 @@ class SyncSafetyGuard {
     );
   }
 
-  /// Whether a full sync run should be considered successful overall.
+  /// Reject an entire sync when projected totals look like a broken parse.
+  SyncWriteDecision evaluateGlobalSync({
+    required int countBefore,
+    required int projectedCountAfter,
+    required int futureBefore,
+    required int projectedFutureAfter,
+    required int facilitiesParsed,
+    required int totalFacilities,
+  }) {
+    if (countBefore >= SyncThresholds.minBaselineSessionCount &&
+        projectedCountAfter <
+            (countBefore * SyncThresholds.minGlobalSessionRatio).round()) {
+      appLogger.w(
+        '[sync-safety] Global reject: projected $projectedCountAfter vs '
+        'baseline $countBefore',
+      );
+      return const SyncWriteDecision.reject(
+        'Source schedule data appears incomplete. '
+        'Using previously verified schedule data.',
+      );
+    }
+
+    if (futureBefore >= SyncThresholds.minFutureBaseline &&
+        projectedFutureAfter <
+            (futureBefore * SyncThresholds.minFutureSessionRatio).round()) {
+      appLogger.w(
+        '[sync-safety] Future-session reject: projected $projectedFutureAfter '
+        'vs baseline $futureBefore',
+      );
+      return const SyncWriteDecision.reject(
+        'Future session count dropped sharply — kept verified cached data.',
+      );
+    }
+
+    if (totalFacilities > 0 &&
+        facilitiesParsed < (totalFacilities * 0.5).round() &&
+        countBefore > 0) {
+      return SyncWriteDecision.reject(
+        'Fewer than half of facilities parsed ($facilitiesParsed/$totalFacilities)',
+      );
+    }
+
+    return SyncWriteDecision.allow('Global sync within expected bounds');
+  }
+
   bool isSyncHealthy({
     required int totalFacilities,
     required int updated,
@@ -67,14 +124,14 @@ class SyncSafetyGuard {
     required int errors,
     required int scheduleCountAfter,
     required int scheduleCountBefore,
+    bool globalRejected = false,
   }) {
+    if (globalRejected) return false;
     if (errors == 0) return true;
-    // Partial success is OK if we didn't lose data.
     if (scheduleCountAfter >= scheduleCountBefore && scheduleCountAfter > 0) {
       return true;
     }
     if (updated > 0 && scheduleCountAfter > 0) return true;
-    // All failed but we still have cached data.
     if (errors < totalFacilities && scheduleCountAfter > 0) return true;
     return false;
   }
