@@ -1,75 +1,75 @@
 # Ottawa Swim Finder
 
-Aggregate City of Ottawa public pool swim schedules into a single searchable, offline-capable Flutter app.
+Find City of Ottawa public pool swim times in one place — searchable, map-based, and works offline after sync.
 
-## Project Structure
+[![Latest release](https://img.shields.io/github/v/release/jtwebhomer/Ottawa-Swim-Finder)](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)
 
-```
-ottawa_swim_finder/
-├── docs/                    # Architecture, schema, implementation plan
-├── scraper/                 # Python scraper (requests + BeautifulSoup + Playwright)
-│   ├── ottawa_scraper/
-│   │   ├── discovery/       # Facility discovery
-│   │   ├── fetchers/          # HTTP + Playwright fetchers
-│   │   ├── parsers/           # Schedule & facility parsers
-│   │   └── snapshots/         # Raw HTML debug snapshots
-│   └── tests/
-└── app/                     # Flutter application
-    ├── lib/
-    │   ├── core/              # Theme, logging, utils
-    │   ├── data/              # DB, repos, scraper, services
-    │   ├── domain/            # Entities, interfaces, use cases
-    │   ├── presentation/      # Screens, providers, widgets
-    │   └── di/                # Dependency injection
-    ├── test/
-    └── assets/
-```
+## Download (Android)
+
+Get the latest APK from **[Releases](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)**.
+
+1. Download `Ottawa-Swim-Finder-v1.0.0.apk`
+2. Install on your Android phone or tablet (enable “Install unknown apps” if prompted)
+3. Open the app → **Settings → Manual Sync** to download schedules
+
+No Google Play listing yet — installs are via the GitHub release APK.
 
 ## Features
 
-- **20 indoor pools** from City of Ottawa
-- **Offline-first** SQLite storage with 6-hour background sync
-- **Map view** with green/blue/gray pin status
-- **Search** by category, facility, date, time, distance
-- **Quick filters**: Swimming Now, Within 1 Hour, Tonight, Tomorrow, Weekend
-- **Favorites** prioritized in search results
-- **Swimming Right Now** city-wide active sessions
-- **Timeline view** for any selected day
-- **Occupancy estimation** from concurrent sessions
-- **Debug screen** with scrape logs and HTML snapshots
+- **20 indoor pools** from the City of Ottawa
+- **Offline-first** — schedules stored locally after sync
+- **Map view** with color-coded pins (active now / upcoming / done for today)
+- **Today tab** with swim-type and time filters
+- **Find a Swim at…** — pick a time and see what’s on nearby
+- **Search** by category, facility, date, time, and distance
+- **Favorites** for quick access
+- **Navigate** to any pool in your preferred maps app
+- **Background sync** every 6 hours (when online)
 
-## Setup
+## Screenshots
+
+_Add screenshots here in a future update._
+
+## Project structure
+
+```
+ottawa_swim_finder/
+├── app/          # Flutter Android app
+├── scraper/      # Python schedule scraper (development / validation)
+├── docs/         # Architecture and schema notes
+└── scripts/      # Build helpers
+```
+
+## Build from source
 
 ### Prerequisites
 
-- Flutter SDK 3.44+ (installed at `E:\flutter`)
-- Python 3.11+ (for scraper development)
+- Flutter SDK 3.44+
 - Android Studio with SDK 34+
+- Python 3.11+ (optional, for the scraper)
 
-### Flutter SDK
-
-Flutter is extracted from `E:\flutter_windows_3.44.3-stable.zip` to `E:\flutter` and added to your user PATH. Open a **new terminal** and verify:
-
-```bash
-flutter --version
-```
-
-### Flutter App
+### Flutter app
 
 ```bash
 cd app
 flutter pub get
+# After pub get, if ObjectBox build fails on Windows:
+#   ../scripts/patch_objectbox.ps1
 flutter run
 ```
 
-The map uses **OpenStreetMap** via `flutter_map` with offline tile caching (`flutter_map_tile_caching`). No API key required.
+Release APK:
 
-- Tiles cache automatically as you browse the map
-- Settings → **Cache Ottawa map** pre-downloads zoom 10–13 for the city
-- Facility pins cluster when zoomed out
-- **Navigate** opens your preferred navigation app (Google Maps, Waze, etc.)
+```bash
+cd app
+flutter build apk --release
+```
 
-### Python Scraper
+Output: `app/build/app/outputs/flutter-apk/app-release.apk`
+
+The map uses **OpenStreetMap** via `flutter_map` with offline tile caching. No API key required.
+
+### Python scraper
 
 ```bash
 cd scraper
@@ -89,6 +89,12 @@ cd scraper && pytest
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md), and [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
-## Data Source
+## Data source
 
-Schedules are scraped from [City of Ottawa recreation facility pages](https://ottawa.ca/en/drop-swimming-and-aquafitness/indoor-pools-drop-locations). This is an unofficial community tool — always verify schedules on the official website.
+Schedules are scraped from [City of Ottawa recreation facility pages](https://ottawa.ca/en/drop-swimming-and-aquafitness/indoor-pools-drop-locations).
+
+This is an **unofficial community tool** — always verify schedules on the official City of Ottawa website.
+
+## License
+
+Source code is provided as-is for personal and community use. Ottawa pool schedule data belongs to the City of Ottawa.
