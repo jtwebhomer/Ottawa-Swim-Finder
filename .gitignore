@@ -5,6 +5,8 @@
 # Local databases and debug artifacts
 device_db.sqlite
 *.sqlite-journal
+*.apk
+android-release/
 
 # Python
 __pycache__/

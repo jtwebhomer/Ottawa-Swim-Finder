@@ -1,18 +1,8 @@
 # Ottawa Swim Finder
 
-Find City of Ottawa public pool swim times in one place — searchable, map-based, and works offline after sync.
+Source code for a City of Ottawa public pool schedule app (Flutter + Python scraper).
 
-[![Latest release](https://img.shields.io/github/v/release/jtwebhomer/Ottawa-Swim-Finder)](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)
-
-## Download (Android)
-
-Get the latest APK from **[Releases](https://github.com/jtwebhomer/Ottawa-Swim-Finder/releases/latest)**.
-
-1. Download `Ottawa-Swim-Finder-v1.0.0.apk`
-2. Install on your Android phone or tablet (enable “Install unknown apps” if prompted)
-3. Open the app → **Settings → Manual Sync** to download schedules
-
-No Google Play listing yet — installs are via the GitHub release APK.
+**Android APK downloads:** [Ottawa-Swim-Finder-Android](https://github.com/jtwebhomer/Ottawa-Swim-Finder-Android/releases/latest)
 
 ## Features
 
@@ -25,10 +15,6 @@ No Google Play listing yet — installs are via the GitHub release APK.
 - **Favorites** for quick access
 - **Navigate** to any pool in your preferred maps app
 - **Background sync** every 6 hours (when online)
-
-## Screenshots
-
-_Add screenshots here in a future update._
 
 ## Project structure
 
