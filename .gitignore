@@ -6,6 +6,7 @@
 device_db.sqlite
 *.sqlite-journal
 *.apk
+!releases/*.apk
 android-release/
 
 # Python
